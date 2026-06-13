@@ -13,195 +13,181 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface MetricEntry {
-  value: string
-  clientTarget: string
+type Values = Partial<Record<MetricId, number>>
+type Targets = { cpa: string; roas: string }
+type ScoredMetric = { id: MetricId; grade: Grade; value: number; clientTarget?: number }
+type RecState = { cause: string; iterations: string[]; checked: boolean[] }
+
+// ─── Grade styling ────────────────────────────────────────────────────────────
+
+const G = {
+  bad:   { bg: 'bg-red-50',     text: 'text-red-700',     border: 'border-red-200',     bar: 'bg-red-400',    ring: 'ring-red-300',    pill: 'bg-red-100 text-red-700'    },
+  ok:    { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-200',   bar: 'bg-amber-400',  ring: 'ring-amber-300',  pill: 'bg-amber-100 text-amber-700'  },
+  good:  { bg: 'bg-green-50',   text: 'text-green-700',   border: 'border-green-200',   bar: 'bg-green-400',  ring: 'ring-green-300',  pill: 'bg-green-100 text-green-700'  },
+  great: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-200', bar: 'bg-emerald-500',ring: 'ring-emerald-300',pill: 'bg-emerald-100 text-emerald-700'},
+} as const
+
+const GRADE_BAR_WIDTH: Record<Grade, string> = {
+  bad: '25%', ok: '50%', good: '75%', great: '100%',
 }
 
-interface ScoredMetric {
-  id: MetricId
-  grade: Grade
-  value: number
-  clientTarget?: number
+function fmtValue(id: MetricId, val: number) {
+  const c = METRICS.find((m) => m.id === id)!
+  if (c.unit === '$') return `$${val % 1 === 0 ? val : val.toFixed(2)}`
+  if (c.unit === 'x') return `${val}x`
+  return `${val}%`
 }
 
-interface Recommendation {
-  metricId: MetricId
-  text: string
-  iterations: string[]
-  checked: boolean[]
-}
+// ─── Components ──────────────────────────────────────────────────────────────
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-const GRADE_STYLES: Record<Grade, { bg: string; text: string; dot: string; border: string }> = {
-  bad: {
-    bg: 'bg-red-50',
-    text: 'text-red-700',
-    dot: 'bg-red-400',
-    border: 'border-red-200',
-  },
-  ok: {
-    bg: 'bg-amber-50',
-    text: 'text-amber-700',
-    dot: 'bg-amber-400',
-    border: 'border-amber-200',
-  },
-  good: {
-    bg: 'bg-green-50',
-    text: 'text-green-700',
-    dot: 'bg-green-400',
-    border: 'border-green-200',
-  },
-  great: {
-    bg: 'bg-emerald-50',
-    text: 'text-emerald-700',
-    dot: 'bg-emerald-500',
-    border: 'border-emerald-200',
-  },
-}
-
-// ─── Helper: parse AI response into per-metric sections ──────────────────────
-
-function parseRecommendations(
-  text: string,
-  leaks: ScoredMetric[]
-): Recommendation[] {
-  const results: Recommendation[] = []
-
-  for (const leak of leaks) {
-    const config = METRICS.find((m) => m.id === leak.id)!
-    // Find the section for this metric in the AI response
-    const escapedLabel = config.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    const regex = new RegExp(
-      `\\*\\*${escapedLabel}\\*\\*([\\s\\S]*?)(?=\\n\\*\\*|$)`,
-      'i'
-    )
-    const match = text.match(regex)
-
-    if (match) {
-      const section = match[1].trim()
-      // Extract numbered iterations
-      const iterMatches = Array.from(section.matchAll(/^\d+\.\s+(.+)$/gm))
-      const iterations = iterMatches.map((m) => m[1].trim())
-      // Everything before the first numbered item is the "what's causing it" text
-      const causingText = section
-        .replace(/\d+\.\s+.+/g, '')
-        .replace(/iterations to test[:\s]*/i, '')
-        .replace(/what.s likely causing.*/i, '')
-        .trim()
-
-      results.push({
-        metricId: leak.id,
-        text: causingText,
-        iterations,
-        checked: new Array(iterations.length).fill(false),
-      })
-    } else {
-      // Fallback: use playbook
-      results.push({
-        metricId: leak.id,
-        text: PLAYBOOKS[leak.id].causes,
-        iterations: [PLAYBOOKS[leak.id].genericFixes],
-        checked: [false],
-      })
-    }
-  }
-
-  return results
-}
-
-// ─── Benchmark display helper ─────────────────────────────────────────────────
-
-function BenchmarkPills({ metricId }: { metricId: MetricId }) {
-  const config = METRICS.find((m) => m.id === metricId)!
-  if (config.perClient || !config.thresholds) return null
-
-  const { ok, good, great } = config.thresholds
-  const u = config.unit
-  const fmt = (n: number) => (u === '$' ? `$${n}` : `${n}${u}`)
-
-  const pills =
-    config.direction === 'higher'
-      ? [
-          { label: 'Bad', val: `<${fmt(ok)}`, grade: 'bad' as Grade },
-          { label: 'OK', val: `${fmt(ok)}–${fmt(good)}`, grade: 'ok' as Grade },
-          { label: 'Good', val: `${fmt(good)}–${fmt(great)}`, grade: 'good' as Grade },
-          { label: 'Great', val: `>${fmt(great)}`, grade: 'great' as Grade },
-        ]
-      : [
-          { label: 'Great', val: `<${fmt(great)}`, grade: 'great' as Grade },
-          { label: 'Good', val: `${fmt(great)}–${fmt(good)}`, grade: 'good' as Grade },
-          { label: 'OK', val: `${fmt(good)}–${fmt(ok)}`, grade: 'ok' as Grade },
-          { label: 'Bad', val: `>${fmt(ok)}`, grade: 'bad' as Grade },
-        ]
-
+function GradePill({ grade }: { grade: Grade }) {
   return (
-    <div className="flex flex-wrap gap-1 mt-2">
-      {pills.map((p) => (
-        <span
-          key={p.label}
-          className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border ${GRADE_STYLES[p.grade].bg} ${GRADE_STYLES[p.grade].text} ${GRADE_STYLES[p.grade].border}`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${GRADE_STYLES[p.grade].dot}`} />
-          {p.label}: {p.val}
-        </span>
-      ))}
-    </div>
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${G[grade].pill}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${G[grade].bar}`} />
+      {GRADE_LABELS[grade]}
+    </span>
   )
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+function Spinner() {
+  return (
+    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  )
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function AdAuditor() {
-  // Metric values
-  const initialEntries = Object.fromEntries(
-    METRICS.map((m) => [m.id, { value: '', clientTarget: '' }])
-  ) as Record<MetricId, MetricEntry>
-  const [entries, setEntries] = useState<Record<MetricId, MetricEntry>>(initialEntries)
+  // ── Step state
+  const [step, setStep] = useState<'upload' | 'dashboard'>('upload')
+  const [manualMode, setManualMode] = useState(false)
 
-  // Scoring state
-  const [scores, setScores] = useState<ScoredMetric[] | null>(null)
-  const leaks = scores?.filter((s) => isLeak(s.grade)) ?? []
+  // ── Screenshot
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null)
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
+  const [extracting, setExtracting] = useState(false)
+  const [extractError, setExtractError] = useState('')
+  const screenshotInputRef = useRef<HTMLInputElement>(null)
 
-  // Ad content
+  // ── Metric values + targets
+  const [values, setValues] = useState<Values>({})
+  const [manualInputs, setManualInputs] = useState<Partial<Record<MetricId, string>>>({})
+  const [targets, setTargets] = useState<Targets>({ cpa: '', roas: '' })
+  const [scores, setScores] = useState<ScoredMetric[]>([])
+
+  // ── Dashboard interaction
+  const [expanded, setExpanded] = useState<MetricId | null>(null)
+
+  // ── Ad content (shared)
   const [adType, setAdType] = useState<'video' | 'static'>('video')
   const [transcript, setTranscript] = useState('')
+  const [adImageFile, setAdImageFile] = useState<File | null>(null)
+  const [adImagePreview, setAdImagePreview] = useState<string | null>(null)
   const [brandUrl, setBrandUrl] = useState('')
   const [brandContext, setBrandContext] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
   const [urlError, setUrlError] = useState('')
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const adImageInputRef = useRef<HTMLInputElement>(null)
 
-  // Recommendations
-  const [recommendations, setRecommendations] = useState<Recommendation[] | null>(null)
-  const [recLoading, setRecLoading] = useState(false)
-  const [recError, setRecError] = useState('')
+  // ── Recommendations per metric
+  const [recs, setRecs] = useState<Partial<Record<MetricId, RecState>>>({})
+  const [recLoading, setRecLoading] = useState<Partial<Record<MetricId, boolean>>>({})
+  const [recErrors, setRecErrors] = useState<Partial<Record<MetricId, string>>>({})
 
-  // ── Handlers ──
+  // ── Scoring ───────────────────────────────────────────────────────────────
 
-  const updateEntry = (id: MetricId, field: keyof MetricEntry, val: string) => {
-    setEntries((prev) => ({ ...prev, [id]: { ...prev[id], [field]: val } }))
-    // Reset scores when inputs change
-    setScores(null)
-    setRecommendations(null)
-  }
+  const computeScores = useCallback((vals: Values, tgts: Targets): ScoredMetric[] => {
+    return METRICS.flatMap((config) => {
+      const val = vals[config.id]
+      if (val === undefined || val === null) return []
+      let clientTarget: number | undefined
+      if (config.id === 'cpa' && tgts.cpa) clientTarget = parseFloat(tgts.cpa) || undefined
+      if (config.id === 'roas' && tgts.roas) clientTarget = parseFloat(tgts.roas) || undefined
+      const grade = scoreMetric(config, val, clientTarget)
+      return [{ id: config.id, grade, value: val, clientTarget }]
+    })
+  }, [])
 
-  const handleScore = () => {
-    const result: ScoredMetric[] = []
-    for (const config of METRICS) {
-      const entry = entries[config.id]
-      const val = parseFloat(entry.value)
-      if (isNaN(val)) continue
-      const target = parseFloat(entry.clientTarget) || undefined
-      const grade = scoreMetric(config, val, target)
-      result.push({ id: config.id, grade, value: val, clientTarget: target })
+  const refreshScores = useCallback((vals: Values, tgts: Targets) => {
+    setScores(computeScores(vals, tgts))
+  }, [computeScores])
+
+  // ── Screenshot upload & extraction ───────────────────────────────────────
+
+  const handleScreenshot = useCallback(async (file: File) => {
+    setScreenshotFile(file)
+    setExtractError('')
+    const preview = URL.createObjectURL(file)
+    setScreenshotPreview(preview)
+    setExtracting(true)
+
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      const dataUrl = e.target?.result as string
+      const base64 = dataUrl.split(',')[1]
+      const mimeType = file.type || 'image/png'
+
+      try {
+        const res = await fetch('/api/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64, mimeType }),
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+
+        const extracted: Values = {}
+        for (const [key, val] of Object.entries(data.values)) {
+          if (val !== null && val !== undefined && !isNaN(Number(val))) {
+            extracted[key as MetricId] = Number(val)
+          }
+        }
+        setValues(extracted)
+        const scored = computeScores(extracted, targets)
+        setScores(scored)
+        setStep('dashboard')
+        setExpanded(null)
+        setRecs({})
+      } catch (err) {
+        setExtractError(err instanceof Error ? err.message : 'Failed to read screenshot')
+      } finally {
+        setExtracting(false)
+      }
     }
-    setScores(result)
-    setRecommendations(null)
+    reader.readAsDataURL(file)
+  }, [targets, computeScores])
+
+  // ── Manual entry ─────────────────────────────────────────────────────────
+
+  const handleManualScore = () => {
+    const vals: Values = {}
+    for (const config of METRICS) {
+      const raw = manualInputs[config.id]
+      if (raw && raw.trim() !== '') {
+        const n = parseFloat(raw)
+        if (!isNaN(n)) vals[config.id] = n
+      }
+    }
+    setValues(vals)
+    const scored = computeScores(vals, targets)
+    setScores(scored)
+    setStep('dashboard')
+    setExpanded(null)
+    setRecs({})
   }
+
+  // ── Target update ─────────────────────────────────────────────────────────
+
+  const updateTarget = (key: 'cpa' | 'roas', val: string) => {
+    const newTargets = { ...targets, [key]: val }
+    setTargets(newTargets)
+    refreshScores(values, newTargets)
+  }
+
+  // ── Brand URL scan ────────────────────────────────────────────────────────
 
   const handleScanUrl = async () => {
     if (!brandUrl.trim()) return
@@ -223,25 +209,33 @@ export default function AdAuditor() {
     }
   }
 
-  const handleImageChange = useCallback((file: File) => {
-    setImageFile(file)
+  // ── Ad image upload ───────────────────────────────────────────────────────
+
+  const handleAdImage = useCallback((file: File) => {
+    setAdImageFile(file)
     const reader = new FileReader()
-    reader.onload = (e) => setImagePreview(e.target?.result as string)
+    reader.onload = (e) => setAdImagePreview(e.target?.result as string)
     reader.readAsDataURL(file)
   }, [])
 
-  const handleGenerateRecs = async () => {
-    if (leaks.length === 0) return
-    setRecLoading(true)
-    setRecError('')
+  // ── Generate recommendations for one metric ───────────────────────────────
+
+  const hasAdContent = adType === 'video' ? transcript.trim().length > 0 : adImageFile !== null
+
+  const generateRec = async (metricId: MetricId) => {
+    const score = scores.find((s) => s.id === metricId)
+    if (!score || !hasAdContent) return
+
+    setRecLoading((p) => ({ ...p, [metricId]: true }))
+    setRecErrors((p) => ({ ...p, [metricId]: '' }))
 
     let imageBase64: string | undefined
     let imageMimeType: string | undefined
 
-    if (adType === 'static' && imageFile) {
-      const buffer = await imageFile.arrayBuffer()
-      imageBase64 = Buffer.from(buffer).toString('base64')
-      imageMimeType = imageFile.type
+    if (adType === 'static' && adImageFile) {
+      const buf = await adImageFile.arrayBuffer()
+      imageBase64 = Buffer.from(buf).toString('base64')
+      imageMimeType = adImageFile.type
     }
 
     try {
@@ -249,7 +243,10 @@ export default function AdAuditor() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          leaks,
+          metricId,
+          metricValue: score.value,
+          metricGrade: score.grade,
+          clientTarget: score.clientTarget,
           adType,
           transcript: adType === 'video' ? transcript : undefined,
           imageBase64,
@@ -259,477 +256,580 @@ export default function AdAuditor() {
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
-      setRecommendations(parseRecommendations(data.recommendations, leaks))
+      setRecs((p) => ({
+        ...p,
+        [metricId]: {
+          cause: data.cause,
+          iterations: data.iterations,
+          checked: new Array(data.iterations.length).fill(false),
+        },
+      }))
     } catch (err) {
-      setRecError(err instanceof Error ? err.message : 'Something went wrong')
+      setRecErrors((p) => ({ ...p, [metricId]: err instanceof Error ? err.message : 'Something went wrong' }))
     } finally {
-      setRecLoading(false)
+      setRecLoading((p) => ({ ...p, [metricId]: false }))
     }
   }
 
-  const toggleIteration = (recIdx: number, iterIdx: number) => {
-    setRecommendations((prev) => {
-      if (!prev) return prev
-      const next = [...prev]
-      next[recIdx] = {
-        ...next[recIdx],
-        checked: next[recIdx].checked.map((c, i) => (i === iterIdx ? !c : c)),
+  const toggleCheck = (metricId: MetricId, idx: number) => {
+    setRecs((p) => {
+      const rec = p[metricId]
+      if (!rec) return p
+      return {
+        ...p,
+        [metricId]: {
+          ...rec,
+          checked: rec.checked.map((c, i) => (i === idx ? !c : c)),
+        },
       }
-      return next
     })
   }
 
-  const scoredCount = scores?.length ?? 0
-  const leakCount = leaks.length
+  const leaks = scores.filter((s) => isLeak(s.grade))
 
-  // ── Render ──
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-cream-50">
+    <div className="min-h-screen" style={{ backgroundColor: '#FAF7F2' }}>
+
       {/* Header */}
-      <header className="border-b border-cream-200 bg-cream-50 sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-sage-500 flex items-center justify-center">
-              <svg viewBox="0 0 20 20" fill="white" className="w-4 h-4">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+      <header style={{ backgroundColor: '#FAF7F2', borderBottom: '1px solid #E8DCC4' }} className="sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#5A8E5A' }}>
+              <svg viewBox="0 0 20 20" fill="white" className="w-3.5 h-3.5">
+                <path fillRule="evenodd" d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
             </div>
-            <span className="font-semibold text-forest tracking-tight">Ad Auditor</span>
+            <span className="font-semibold tracking-tight" style={{ color: '#2D3428' }}>Ad Auditor</span>
           </div>
-          {scores && (
-            <div className="flex items-center gap-2 text-sm">
-              {leakCount > 0 ? (
-                <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-700 border border-amber-200 font-medium">
-                  {leakCount} leak{leakCount !== 1 ? 's' : ''} found
-                </span>
-              ) : (
-                <span className="px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
-                  All metrics healthy
-                </span>
+
+          {step === 'dashboard' && (
+            <div className="flex items-center gap-3">
+              {scores.length > 0 && (
+                leaks.length > 0 ? (
+                  <span className="text-sm font-medium px-3 py-1 rounded-full bg-amber-100 text-amber-700">
+                    {leaks.length} leak{leaks.length !== 1 ? 's' : ''} found
+                  </span>
+                ) : (
+                  <span className="text-sm font-medium px-3 py-1 rounded-full bg-emerald-100 text-emerald-700">
+                    All healthy
+                  </span>
+                )
               )}
+              <button
+                onClick={() => {
+                  setStep('upload')
+                  setManualMode(false)
+                  setScreenshotFile(null)
+                  setScreenshotPreview(null)
+                  setValues({})
+                  setManualInputs({})
+                  setScores([])
+                  setExpanded(null)
+                  setRecs({})
+                  setExtractError('')
+                }}
+                className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
+                style={{ borderColor: '#C0D4C0', color: '#4A5240' }}
+              >
+                New audit
+              </button>
             </div>
           )}
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-6 py-10 space-y-10">
+      <main className="max-w-5xl mx-auto px-6 py-10">
 
-        {/* ── Section 1: Metrics ── */}
-        <section>
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-forest">Metrics</h2>
-            <p className="text-sm text-moss mt-1">Enter this ad's performance numbers. Leave blank any metrics you don't have.</p>
-          </div>
+        {/* ══════════════════════════════════════════ */}
+        {/* STEP: UPLOAD                               */}
+        {/* ══════════════════════════════════════════ */}
+        {step === 'upload' && !manualMode && (
+          <div className="max-w-2xl mx-auto">
+            <div className="text-center mb-10">
+              <h1 className="text-2xl font-semibold mb-2" style={{ color: '#2D3428' }}>
+                Drop in your Ads Manager screenshot
+              </h1>
+              <p className="text-sm" style={{ color: '#7A8870' }}>
+                Claude reads your Meta performance data and diagnoses exactly where the ad is leaking.
+              </p>
+            </div>
 
-          {/* Universal metrics */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-6">
-            {METRICS.filter((m) => !m.perClient).map((config) => {
-              const entry = entries[config.id]
-              const score = scores?.find((s) => s.id === config.id)
-              const hasValue = entry.value !== ''
-
-              return (
-                <div
-                  key={config.id}
-                  className={`rounded-xl border p-4 transition-colors ${
-                    score
-                      ? isLeak(score.grade)
-                        ? 'border-amber-200 bg-amber-50/40'
-                        : 'border-sage-200 bg-sage-100/20'
-                      : 'border-cream-200 bg-white'
-                  }`}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <div className="font-medium text-sm text-forest">{config.label}</div>
-                      <div className="text-xs text-fern mt-0.5">{config.description}</div>
+            {/* Upload zone */}
+            <div
+              onClick={() => !extracting && screenshotInputRef.current?.click()}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault()
+                const file = e.dataTransfer.files[0]
+                if (file && file.type.startsWith('image/')) handleScreenshot(file)
+              }}
+              className="rounded-2xl border-2 border-dashed cursor-pointer transition-all"
+              style={{
+                borderColor: extracting ? '#7AA87A' : '#C0D4C0',
+                backgroundColor: extracting ? '#F0F5F0' : '#FFFFFF',
+                minHeight: '320px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {extracting ? (
+                <div className="flex flex-col items-center gap-4 p-10">
+                  {screenshotPreview && (
+                    <div className="relative">
+                      <img src={screenshotPreview} alt="screenshot" className="max-h-40 rounded-lg opacity-60 object-contain" />
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <div className="bg-white rounded-xl px-4 py-3 shadow-sm flex items-center gap-2.5">
+                          <Spinner />
+                          <span className="text-sm font-medium" style={{ color: '#2D3428' }}>Reading your ad data…</span>
+                        </div>
+                      </div>
                     </div>
-                    {score && (
-                      <span
-                        className={`text-xs font-medium px-2 py-0.5 rounded-full ml-2 shrink-0 ${GRADE_STYLES[score.grade].bg} ${GRADE_STYLES[score.grade].text}`}
-                      >
-                        {GRADE_LABELS[score.grade]}
-                      </span>
-                    )}
+                  )}
+                </div>
+              ) : screenshotPreview && extractError ? (
+                <div className="flex flex-col items-center gap-4 p-10 text-center">
+                  <img src={screenshotPreview} alt="screenshot" className="max-h-32 rounded-lg opacity-50 object-contain" />
+                  <div>
+                    <p className="text-sm font-medium text-red-600 mb-1">Couldn't read the screenshot</p>
+                    <p className="text-xs text-red-500 mb-3">{extractError}</p>
+                    <p className="text-xs" style={{ color: '#7A8870' }}>Try a clearer crop, or use manual entry below.</p>
                   </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-4 p-10 text-center" style={{ color: '#9DAF9D' }}>
+                  <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" className="w-12 h-12 opacity-60">
+                    <rect x="4" y="8" width="40" height="28" rx="3" strokeWidth="2" />
+                    <path d="M4 30l10-8 8 6 8-10 14 12" strokeWidth="2" strokeLinejoin="round" />
+                    <circle cx="15" cy="19" r="3" strokeWidth="2" />
+                    <path d="M18 40h12M24 36v4" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                  <div>
+                    <p className="text-base font-medium" style={{ color: '#4A5240' }}>Drop your Ads Manager screenshot here</p>
+                    <p className="text-sm mt-1" style={{ color: '#9DAF9D' }}>or click to browse</p>
+                  </div>
+                  <p className="text-xs" style={{ color: '#B8CFB8' }}>PNG, JPG, WEBP · Make sure all 10 metric columns are visible</p>
+                </div>
+              )}
+            </div>
 
+            <input
+              ref={screenshotInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                if (file) handleScreenshot(file)
+              }}
+            />
+
+            <div className="text-center mt-6">
+              <button
+                onClick={() => setManualMode(true)}
+                className="text-sm underline underline-offset-2 transition-colors"
+                style={{ color: '#7A8870' }}
+              >
+                Enter metrics manually instead
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════ */}
+        {/* MANUAL ENTRY                               */}
+        {/* ══════════════════════════════════════════ */}
+        {step === 'upload' && manualMode && (
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-center gap-3 mb-8">
+              <button onClick={() => setManualMode(false)} className="text-sm" style={{ color: '#7A8870' }}>
+                ← Back
+              </button>
+              <h2 className="text-lg font-semibold" style={{ color: '#2D3428' }}>Enter metrics manually</h2>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+              {METRICS.filter((m) => !m.perClient).map((config) => (
+                <div key={config.id} className="rounded-xl border p-4 bg-white" style={{ borderColor: '#E8DCC4' }}>
+                  <div className="font-medium text-sm mb-0.5" style={{ color: '#2D3428' }}>{config.label}</div>
+                  <div className="text-xs mb-2" style={{ color: '#9DAF9D' }}>{config.description}</div>
                   <div className="relative">
-                    {config.unit === '$' && (
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-moss text-sm">$</span>
-                    )}
+                    {config.unit === '$' && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#7A8870' }}>$</span>}
                     <input
                       type="number"
                       step="any"
                       placeholder={config.placeholder}
-                      value={entry.value}
-                      onChange={(e) => updateEntry(config.id, 'value', e.target.value)}
-                      className={`w-full rounded-lg border text-sm px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-sage-300 focus:border-sage-400 transition-colors ${
-                        config.unit === '$' ? 'pl-7' : ''
-                      } ${
-                        score && isLeak(score.grade)
-                          ? 'border-amber-200'
-                          : 'border-cream-200'
-                      }`}
+                      value={manualInputs[config.id] ?? ''}
+                      onChange={(e) => setManualInputs((p) => ({ ...p, [config.id]: e.target.value }))}
+                      className={`w-full rounded-lg border text-sm px-3 py-2 focus:outline-none focus:ring-2 transition-colors ${config.unit === '$' ? 'pl-7' : ''}`}
+                      style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
                     />
                     {config.unit !== '$' && (
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-fern text-sm pointer-events-none">
-                        {config.unit}
-                      </span>
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm pointer-events-none" style={{ color: '#9DAF9D' }}>{config.unit}</span>
                     )}
                   </div>
-
-                  <BenchmarkPills metricId={config.id} />
                 </div>
-              )
-            })}
-          </div>
+              ))}
+            </div>
 
-          {/* Per-client metrics */}
-          <div className="rounded-xl border border-cream-200 bg-white p-5">
-            <div className="text-sm font-medium text-forest mb-1">Client targets</div>
-            <div className="text-xs text-fern mb-4">These metrics need your client's targets to score correctly.</div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {METRICS.filter((m) => m.perClient).map((config) => {
-                const entry = entries[config.id]
-                const score = scores?.find((s) => s.id === config.id)
-
-                return (
-                  <div key={config.id}>
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <div className="font-medium text-sm text-forest">{config.label}</div>
-                        <div className="text-xs text-fern">{config.description}</div>
-                      </div>
-                      {score && (
-                        <span
-                          className={`text-xs font-medium px-2 py-0.5 rounded-full ml-2 shrink-0 ${GRADE_STYLES[score.grade].bg} ${GRADE_STYLES[score.grade].text}`}
-                        >
-                          {GRADE_LABELS[score.grade]}
-                        </span>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      <div className="relative flex-1">
-                        {config.unit === '$' && (
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-moss text-sm">$</span>
-                        )}
-                        <input
-                          type="number"
-                          step="any"
-                          placeholder={`Actual${config.unit !== '$' ? ` (${config.unit})` : ''}`}
-                          value={entry.value}
-                          onChange={(e) => updateEntry(config.id, 'value', e.target.value)}
-                          className={`w-full rounded-lg border text-sm px-3 py-2 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-sage-300 focus:border-sage-400 transition-colors ${config.unit === '$' ? 'pl-7' : ''} border-cream-200`}
-                        />
-                      </div>
-                      <div className="relative flex-1">
-                        {config.unit === '$' && (
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-fern text-sm">$</span>
-                        )}
-                        <input
-                          type="number"
-                          step="any"
-                          placeholder={`Target${config.unit !== '$' ? ` (${config.unit})` : ''}`}
-                          value={entry.clientTarget}
-                          onChange={(e) => updateEntry(config.id, 'clientTarget', e.target.value)}
-                          className={`w-full rounded-lg border text-sm px-3 py-2 bg-cream-50 focus:outline-none focus:ring-2 focus:ring-sage-300 focus:border-sage-400 transition-colors ${config.unit === '$' ? 'pl-7' : ''} border-cream-200`}
-                        />
+            {/* Per-client targets */}
+            <div className="rounded-xl border p-5 bg-white mb-5" style={{ borderColor: '#E8DCC4' }}>
+              <div className="text-sm font-medium mb-1" style={{ color: '#2D3428' }}>Client targets</div>
+              <div className="text-xs mb-4" style={{ color: '#9DAF9D' }}>Enter actual value + your target to score CPA and ROAS.</div>
+              <div className="grid grid-cols-2 gap-4">
+                {(['cpa', 'roas'] as const).map((id) => {
+                  const config = METRICS.find((m) => m.id === id)!
+                  return (
+                    <div key={id}>
+                      <div className="text-sm font-medium mb-2" style={{ color: '#2D3428' }}>{config.label}</div>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          {config.unit === '$' && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#7A8870' }}>$</span>}
+                          <input
+                            type="number" step="any" placeholder="Actual"
+                            value={manualInputs[id] ?? ''}
+                            onChange={(e) => setManualInputs((p) => ({ ...p, [id]: e.target.value }))}
+                            className={`w-full rounded-lg border text-sm px-3 py-2 focus:outline-none ${config.unit === '$' ? 'pl-7' : ''}`}
+                            style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
+                          />
+                        </div>
+                        <div className="relative flex-1">
+                          {config.unit === '$' && <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm" style={{ color: '#9DAF9D' }}>$</span>}
+                          <input
+                            type="number" step="any" placeholder="Target"
+                            value={targets[id]}
+                            onChange={(e) => updateTarget(id, e.target.value)}
+                            className={`w-full rounded-lg border text-sm px-3 py-2 focus:outline-none ${config.unit === '$' ? 'pl-7' : ''}`}
+                            style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-
-          <button
-            onClick={handleScore}
-            disabled={Object.values(entries).every((e) => e.value === '')}
-            className="mt-5 px-6 py-2.5 rounded-lg bg-sage-500 text-white text-sm font-medium hover:bg-sage-600 active:bg-sage-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            Score metrics
-          </button>
-        </section>
-
-        {/* ── Section 2: Leak summary ── */}
-        {scores && (
-          <section>
-            <div className="mb-4">
-              <h2 className="text-lg font-semibold text-forest">
-                {leakCount > 0 ? `${leakCount} leak${leakCount !== 1 ? 's' : ''} flagged` : 'No leaks — looking healthy'}
-              </h2>
-              {leakCount > 0 && (
-                <p className="text-sm text-moss mt-1">These metrics are at OK or below and need attention.</p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-              {scores.map((s) => {
-                const config = METRICS.find((m) => m.id === s.id)!
-                const style = GRADE_STYLES[s.grade]
-                return (
-                  <div
-                    key={s.id}
-                    className={`rounded-lg border p-3 text-center ${style.bg} ${style.border}`}
-                  >
-                    <div className={`text-xs font-medium ${style.text} mb-1`}>{config.label}</div>
-                    <div className={`text-lg font-semibold ${style.text}`}>
-                      {config.unit === '$' ? '$' : ''}{s.value}{config.unit !== '$' ? config.unit : ''}
-                    </div>
-                    <div className={`text-xs mt-1 font-medium ${style.text} opacity-70`}>
-                      {GRADE_LABELS[s.grade]}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        )}
-
-        {/* ── Section 3: Ad content + recommendations ── */}
-        {scores && leakCount > 0 && (
-          <section>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-forest">Ad content</h2>
-              <p className="text-sm text-moss mt-1">
-                Give us the ad and optionally a brand URL — the more context, the more specific the fixes.
-              </p>
-            </div>
-
-            {/* Brand URL */}
-            <div className="mb-5">
-              <label className="block text-sm font-medium text-forest mb-2">
-                Brand / product URL <span className="text-fern font-normal">(optional)</span>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="url"
-                  placeholder="https://brand.com"
-                  value={brandUrl}
-                  onChange={(e) => {
-                    setBrandUrl(e.target.value)
-                    setBrandContext('')
-                    setUrlError('')
-                  }}
-                  className="flex-1 rounded-lg border border-cream-200 text-sm px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-sage-300 focus:border-sage-400"
-                />
-                <button
-                  onClick={handleScanUrl}
-                  disabled={!brandUrl.trim() || urlLoading}
-                  className="px-4 py-2 rounded-lg border border-sage-300 text-sage-600 text-sm font-medium hover:bg-sage-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {urlLoading ? 'Scanning…' : 'Scan'}
-                </button>
-              </div>
-              {urlError && <p className="text-xs text-red-600 mt-1">{urlError}</p>}
-              {brandContext && !urlError && (
-                <p className="text-xs text-sage-600 mt-1 flex items-center gap-1">
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  Site scanned — brand context loaded
-                </p>
-              )}
-            </div>
-
-            {/* Ad type toggle */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-forest mb-2">Ad type</label>
-              <div className="inline-flex rounded-lg border border-cream-200 bg-white p-1 gap-1">
-                {(['video', 'static'] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => {
-                      setAdType(t)
-                      setRecommendations(null)
-                    }}
-                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize ${
-                      adType === t
-                        ? 'bg-sage-500 text-white'
-                        : 'text-moss hover:text-forest'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                ))}
+                  )
+                })}
               </div>
             </div>
-
-            {/* Ad content input */}
-            {adType === 'video' ? (
-              <div className="mb-5">
-                <label className="block text-sm font-medium text-forest mb-2">
-                  Script / transcript
-                </label>
-                <textarea
-                  rows={6}
-                  placeholder="Paste the full script or transcript here…"
-                  value={transcript}
-                  onChange={(e) => {
-                    setTranscript(e.target.value)
-                    setRecommendations(null)
-                  }}
-                  className="w-full rounded-lg border border-cream-200 text-sm px-3 py-2.5 bg-white focus:outline-none focus:ring-2 focus:ring-sage-300 focus:border-sage-400 resize-none"
-                />
-              </div>
-            ) : (
-              <div className="mb-5">
-                <label className="block text-sm font-medium text-forest mb-2">
-                  Upload image
-                </label>
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault()
-                    const file = e.dataTransfer.files[0]
-                    if (file && file.type.startsWith('image/')) handleImageChange(file)
-                  }}
-                  className="rounded-xl border-2 border-dashed border-cream-300 bg-white hover:border-sage-300 hover:bg-sage-100/10 transition-colors cursor-pointer p-6 text-center"
-                >
-                  {imagePreview ? (
-                    <div className="flex flex-col items-center gap-3">
-                      <img
-                        src={imagePreview}
-                        alt="Ad preview"
-                        className="max-h-48 rounded-lg object-contain"
-                      />
-                      <span className="text-xs text-fern">{imageFile?.name}</span>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2 text-fern">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-8 h-8 opacity-50">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <span className="text-sm">Drop image here or click to upload</span>
-                      <span className="text-xs opacity-60">PNG, JPG, WEBP</span>
-                    </div>
-                  )}
-                </div>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleImageChange(file)
-                  }}
-                />
-              </div>
-            )}
 
             <button
-              onClick={handleGenerateRecs}
-              disabled={
-                recLoading ||
-                (adType === 'video' && !transcript.trim()) ||
-                (adType === 'static' && !imageFile)
-              }
-              className="px-6 py-2.5 rounded-lg bg-sage-500 text-white text-sm font-medium hover:bg-sage-600 active:bg-sage-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+              onClick={handleManualScore}
+              disabled={Object.values(manualInputs).every((v) => !v)}
+              className="px-6 py-2.5 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-40"
+              style={{ backgroundColor: '#5A8E5A' }}
             >
-              {recLoading ? (
-                <>
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Generating…
-                </>
-              ) : (
-                'Generate iterations'
-              )}
+              Score metrics
             </button>
-
-            {recError && (
-              <p className="text-sm text-red-600 mt-3">{recError}</p>
-            )}
-          </section>
+          </div>
         )}
 
-        {/* ── Section 4: Recommendations ── */}
-        {recommendations && recommendations.length > 0 && (
-          <section>
-            <div className="mb-6">
-              <h2 className="text-lg font-semibold text-forest">Iterations to test</h2>
-              <p className="text-sm text-moss mt-1">Check off iterations as you queue them for testing.</p>
-            </div>
+        {/* ══════════════════════════════════════════ */}
+        {/* STEP: DASHBOARD                            */}
+        {/* ══════════════════════════════════════════ */}
+        {step === 'dashboard' && (
+          <div>
+            {/* Screenshot thumbnail */}
+            {screenshotPreview && !manualMode && (
+              <div className="flex items-center gap-3 mb-8 p-3 rounded-xl border" style={{ borderColor: '#E8DCC4', backgroundColor: '#FFFFFF' }}>
+                <img src={screenshotPreview} alt="Ads Manager" className="h-12 rounded-lg object-contain opacity-80" />
+                <div>
+                  <div className="text-sm font-medium" style={{ color: '#2D3428' }}>
+                    {scores.length} metric{scores.length !== 1 ? 's' : ''} read
+                    {leaks.length > 0 && <span className="ml-2 text-amber-600">· {leaks.length} leak{leaks.length !== 1 ? 's' : ''}</span>}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: '#9DAF9D' }}>Click any metric below to diagnose it</div>
+                </div>
+              </div>
+            )}
 
-            <div className="space-y-4">
-              {recommendations.map((rec, recIdx) => {
-                const config = METRICS.find((m) => m.id === rec.metricId)!
-                const score = scores?.find((s) => s.id === rec.metricId)
-                const checkedCount = rec.checked.filter(Boolean).length
+            {/* Metric grid */}
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              {METRICS.map((config) => {
+                const score = scores.find((s) => s.id === config.id)
+                const isSelected = expanded === config.id
+                const needsTarget = config.perClient && score && !score.clientTarget
+
+                if (!score) {
+                  // Not scored — show muted placeholder
+                  return (
+                    <div key={config.id} className="rounded-xl border p-4 opacity-40 cursor-default" style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}>
+                      <div className="text-xs font-medium mb-1" style={{ color: '#7A8870' }}>{config.label}</div>
+                      <div className="text-sm" style={{ color: '#B8CFB8' }}>—</div>
+                    </div>
+                  )
+                }
 
                 return (
-                  <div
-                    key={rec.metricId}
-                    className="rounded-xl border border-cream-200 bg-white overflow-hidden"
+                  <button
+                    key={config.id}
+                    onClick={() => setExpanded(isSelected ? null : config.id)}
+                    className={`rounded-xl border p-4 text-left transition-all ${G[score.grade].bg} ${G[score.grade].border} ${isSelected ? `ring-2 ${G[score.grade].ring}` : 'hover:shadow-sm'}`}
                   >
-                    {/* Header */}
-                    <div className="px-5 py-4 border-b border-cream-200 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${score ? GRADE_STYLES[score.grade].bg : ''} ${score ? GRADE_STYLES[score.grade].text : ''}`}>
-                          {score ? GRADE_LABELS[score.grade] : ''}
-                        </span>
-                        <span className="font-semibold text-forest">{config.label}</span>
-                        {score && (
-                          <span className="text-sm text-fern">
-                            {config.unit === '$' ? '$' : ''}{score.value}{config.unit !== '$' ? config.unit : ''}
-                          </span>
-                        )}
+                    {/* Top row */}
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <div className="text-xs font-medium mb-0.5" style={{ color: '#2D3428' }}>{config.label}</div>
+                        <div className={`text-xl font-semibold ${G[score.grade].text}`}>
+                          {fmtValue(config.id, score.value)}
+                        </div>
                       </div>
-                      {rec.iterations.length > 0 && (
-                        <span className="text-xs text-fern">
-                          {checkedCount}/{rec.iterations.length} queued
-                        </span>
-                      )}
+                      <GradePill grade={score.grade} />
                     </div>
 
-                    {/* Cause */}
-                    {rec.text && (
-                      <div className="px-5 py-3 bg-cream-50 border-b border-cream-200">
-                        <p className="text-sm text-moss leading-relaxed">{rec.text}</p>
-                      </div>
+                    {/* Grade bar */}
+                    <div className="h-1 rounded-full mt-3" style={{ backgroundColor: '#E8DCC4' }}>
+                      <div
+                        className={`h-1 rounded-full transition-all ${G[score.grade].bar}`}
+                        style={{ width: GRADE_BAR_WIDTH[score.grade] }}
+                      />
+                    </div>
+
+                    {/* Target warning for per-client */}
+                    {needsTarget && (
+                      <div className="text-xs mt-2 text-amber-600">Set target to score ↓</div>
                     )}
 
-                    {/* Iterations */}
-                    <div className="divide-y divide-cream-100">
-                      {rec.iterations.map((iter, iterIdx) => (
-                        <label
-                          key={iterIdx}
-                          className={`flex items-start gap-3 px-5 py-4 cursor-pointer transition-colors hover:bg-cream-50 ${
-                            rec.checked[iterIdx] ? 'bg-sage-100/30' : ''
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={rec.checked[iterIdx]}
-                            onChange={() => toggleIteration(recIdx, iterIdx)}
-                            className="mt-0.5 w-4 h-4 rounded border-cream-300 text-sage-500 focus:ring-sage-300 shrink-0 accent-sage-500 cursor-pointer"
-                          />
-                          <span
-                            className={`text-sm leading-relaxed transition-colors ${
-                              rec.checked[iterIdx]
-                                ? 'text-fern line-through'
-                                : 'text-forest'
-                            }`}
-                          >
-                            {iter}
-                          </span>
-                        </label>
-                      ))}
+                    {/* Expand indicator */}
+                    <div className={`text-xs mt-2 flex items-center gap-1 transition-colors ${G[score.grade].text} opacity-60`}>
+                      <svg viewBox="0 0 16 16" fill="currentColor" className={`w-3 h-3 transition-transform ${isSelected ? 'rotate-180' : ''}`}>
+                        <path d="M8 10.94L2.03 5 1 6.06 8 13l7-6.94L13.97 5z" />
+                      </svg>
+                      {isSelected ? 'Close' : 'Diagnose'}
                     </div>
-                  </div>
+                  </button>
                 )
               })}
             </div>
-          </section>
-        )}
 
-        {/* Spacer */}
-        <div className="h-16" />
+            {/* ── Expanded metric detail ── */}
+            {expanded && (() => {
+              const score = scores.find((s) => s.id === expanded)
+              if (!score) return null
+              const config = METRICS.find((m) => m.id === expanded)!
+              const playbook = PLAYBOOKS[expanded]
+              const rec = recs[expanded]
+              const loading = recLoading[expanded]
+              const recError = recErrors[expanded]
+
+              return (
+                <div
+                  className="rounded-2xl border mb-3 overflow-hidden"
+                  style={{ borderColor: '#C0D4C0', backgroundColor: '#FFFFFF' }}
+                >
+                  {/* Panel header */}
+                  <div className="px-6 py-5 border-b flex items-center justify-between" style={{ borderColor: '#E8DCC4', backgroundColor: '#F5F9F5' }}>
+                    <div className="flex items-center gap-3">
+                      <GradePill grade={score.grade} />
+                      <span className="font-semibold" style={{ color: '#2D3428' }}>{config.label}</span>
+                      <span className="text-sm" style={{ color: '#7A8870' }}>{fmtValue(config.id, score.value)}</span>
+                    </div>
+                    <button
+                      onClick={() => setExpanded(null)}
+                      className="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:bg-sage-100"
+                      style={{ color: '#7A8870' }}
+                    >
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="px-6 py-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {/* Left: playbook */}
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#9DAF9D' }}>Why this leaks</div>
+                      <p className="text-sm leading-relaxed mb-4" style={{ color: '#4A5240' }}>{playbook.causes}</p>
+                      <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#9DAF9D' }}>Generic fixes</div>
+                      <p className="text-sm leading-relaxed" style={{ color: '#4A5240' }}>{playbook.genericFixes}</p>
+                    </div>
+
+                    {/* Right: ad content + specific recs */}
+                    <div>
+                      {!rec ? (
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: '#9DAF9D' }}>Get specific iterations</div>
+
+                          {/* Brand URL */}
+                          <div className="mb-3">
+                            <div className="flex gap-2">
+                              <input
+                                type="url"
+                                placeholder="Brand / product URL (optional)"
+                                value={brandUrl}
+                                onChange={(e) => { setBrandUrl(e.target.value); setBrandContext(''); setUrlError('') }}
+                                className="flex-1 rounded-lg border text-sm px-3 py-2 focus:outline-none"
+                                style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
+                              />
+                              <button
+                                onClick={handleScanUrl}
+                                disabled={!brandUrl.trim() || urlLoading}
+                                className="px-3 py-2 rounded-lg border text-sm transition-colors disabled:opacity-40"
+                                style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}
+                              >
+                                {urlLoading ? '…' : 'Scan'}
+                              </button>
+                            </div>
+                            {urlError && <p className="text-xs text-red-500 mt-1">{urlError}</p>}
+                            {brandContext && <p className="text-xs mt-1" style={{ color: '#5A8E5A' }}>✓ Brand context loaded</p>}
+                          </div>
+
+                          {/* Ad type toggle */}
+                          <div className="flex rounded-lg border p-1 gap-1 mb-3 w-fit" style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}>
+                            {(['video', 'static'] as const).map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => { setAdType(t); setAdImageFile(null); setAdImagePreview(null) }}
+                                className="px-3 py-1 rounded-md text-sm font-medium capitalize transition-colors"
+                                style={{
+                                  backgroundColor: adType === t ? '#5A8E5A' : 'transparent',
+                                  color: adType === t ? 'white' : '#7A8870',
+                                }}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Ad content input */}
+                          {adType === 'video' ? (
+                            <textarea
+                              rows={4}
+                              placeholder="Paste transcript or script here…"
+                              value={transcript}
+                              onChange={(e) => setTranscript(e.target.value)}
+                              className="w-full rounded-lg border text-sm px-3 py-2.5 focus:outline-none resize-none mb-3"
+                              style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
+                            />
+                          ) : (
+                            <div
+                              onClick={() => adImageInputRef.current?.click()}
+                              onDragOver={(e) => e.preventDefault()}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                const file = e.dataTransfer.files[0]
+                                if (file && file.type.startsWith('image/')) handleAdImage(file)
+                              }}
+                              className="rounded-lg border-2 border-dashed cursor-pointer mb-3 p-4 text-center transition-colors"
+                              style={{ borderColor: adImagePreview ? '#7AA87A' : '#C0D4C0', backgroundColor: adImagePreview ? '#F0F5F0' : '#FDFAF5' }}
+                            >
+                              {adImagePreview ? (
+                                <div className="flex items-center gap-3">
+                                  <img src={adImagePreview} alt="ad" className="h-12 rounded object-contain" />
+                                  <span className="text-xs" style={{ color: '#7A8870' }}>{adImageFile?.name}</span>
+                                </div>
+                              ) : (
+                                <p className="text-sm" style={{ color: '#9DAF9D' }}>Drop ad image or click to upload</p>
+                              )}
+                            </div>
+                          )}
+                          <input ref={adImageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleAdImage(f) }} />
+
+                          {/* Per-client target inputs if needed */}
+                          {config.perClient && (
+                            <div className="mb-3 flex gap-2 items-center">
+                              <span className="text-xs" style={{ color: '#7A8870' }}>Target {config.label}:</span>
+                              <div className="relative w-28">
+                                {config.unit === '$' && <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#7A8870' }}>$</span>}
+                                <input
+                                  type="number" step="any" placeholder="e.g. 40"
+                                  value={targets[config.id as 'cpa' | 'roas']}
+                                  onChange={(e) => updateTarget(config.id as 'cpa' | 'roas', e.target.value)}
+                                  className={`w-full rounded-lg border text-sm px-2 py-1.5 focus:outline-none ${config.unit === '$' ? 'pl-5' : ''}`}
+                                  style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          <button
+                            onClick={() => generateRec(expanded)}
+                            disabled={loading || !hasAdContent}
+                            className="w-full px-4 py-2.5 rounded-lg text-white text-sm font-medium transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
+                            style={{ backgroundColor: '#5A8E5A' }}
+                          >
+                            {loading ? <><Spinner /> Analysing…</> : 'Analyse this ad'}
+                          </button>
+                          {!hasAdContent && (
+                            <p className="text-xs text-center mt-2" style={{ color: '#9DAF9D' }}>
+                              {adType === 'video' ? 'Add a transcript above to continue' : 'Upload the ad image above to continue'}
+                            </p>
+                          )}
+                          {recError && <p className="text-sm text-red-600 mt-2">{recError}</p>}
+                        </div>
+                      ) : (
+                        /* Recommendations output */
+                        <div>
+                          <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#9DAF9D' }}>What's causing it</div>
+                          <p className="text-sm leading-relaxed mb-4" style={{ color: '#4A5240' }}>{rec.cause}</p>
+                          <div className="text-xs font-semibold uppercase tracking-wide mb-2" style={{ color: '#9DAF9D' }}>Iterations to test</div>
+                          <div className="space-y-2">
+                            {rec.iterations.map((iter, i) => (
+                              <label
+                                key={i}
+                                className="flex items-start gap-3 rounded-lg p-3 cursor-pointer transition-colors"
+                                style={{ backgroundColor: rec.checked[i] ? '#F0F5F0' : '#FDFAF5', border: '1px solid #E8DCC4' }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={rec.checked[i]}
+                                  onChange={() => toggleCheck(expanded, i)}
+                                  className="mt-0.5 shrink-0 accent-green-600"
+                                />
+                                <span
+                                  className="text-sm leading-relaxed"
+                                  style={{ color: rec.checked[i] ? '#9DAF9D' : '#2D3428', textDecoration: rec.checked[i] ? 'line-through' : 'none' }}
+                                >
+                                  {iter}
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            onClick={() => setRecs((p) => { const n = { ...p }; delete n[expanded]; return n })}
+                            className="text-xs mt-3 underline underline-offset-2"
+                            style={{ color: '#9DAF9D' }}
+                          >
+                            Re-analyse
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Per-client targets (if not already in expanded panel) */}
+            {!expanded && scores.some((s) => s.id === 'cpa' || s.id === 'roas') && (
+              <div className="rounded-xl border p-4 mt-2" style={{ borderColor: '#E8DCC4', backgroundColor: '#FFFFFF' }}>
+                <div className="text-sm font-medium mb-3" style={{ color: '#2D3428' }}>Client targets</div>
+                <div className="flex gap-6">
+                  {(['cpa', 'roas'] as const).map((id) => {
+                    const config = METRICS.find((m) => m.id === id)!
+                    const score = scores.find((s) => s.id === id)
+                    if (!score) return null
+                    return (
+                      <div key={id} className="flex items-center gap-2">
+                        <span className="text-sm" style={{ color: '#4A5240' }}>{config.label} target:</span>
+                        <div className="relative w-24">
+                          {config.unit === '$' && <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#7A8870' }}>$</span>}
+                          <input
+                            type="number" step="any" placeholder="—"
+                            value={targets[id]}
+                            onChange={(e) => updateTarget(id, e.target.value)}
+                            className={`w-full rounded-lg border text-sm px-2 py-1.5 focus:outline-none ${config.unit === '$' ? 'pl-5' : ''}`}
+                            style={{ borderColor: '#E8DCC4', backgroundColor: '#FDFAF5' }}
+                          />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   )

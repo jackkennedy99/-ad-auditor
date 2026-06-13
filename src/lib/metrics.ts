@@ -6,7 +6,6 @@ export type MetricId =
   | 'cplpv'
   | 'lpQuality'
   | 'atcPurchase'
-  | 'cpm'
   | 'cpa'
   | 'roas'
 
@@ -96,15 +95,6 @@ export const METRICS: MetricConfig[] = [
     placeholder: '22',
   },
   {
-    id: 'cpm',
-    label: 'CPM',
-    description: 'Cost per 1,000 impressions',
-    unit: '$',
-    direction: 'lower',
-    perClient: true,
-    placeholder: '15',
-  },
-  {
     id: 'cpa',
     label: 'CPA',
     description: 'Cost per acquisition',
@@ -170,19 +160,19 @@ export const GRADE_LABELS: Record<Grade, string> = {
 export const PLAYBOOKS: Record<MetricId, { causes: string; genericFixes: string }> = {
   hookRate: {
     causes:
-      'The opening frame isn\'t stopping the scroll. Usually means the first 2 seconds are too slow, too generic, or fail to signal something relevant to the viewer immediately.',
+      "The opening frame isn't stopping the scroll. Usually the first 2 seconds are too slow, too generic, or fail to signal something relevant to the viewer immediately.",
     genericFixes:
       'Lead with the most specific or surprising claim. Open on motion or an unexpected visual. State the problem or outcome in the first 2 seconds. Try a direct-to-camera hook with a bold statement. Test pattern interrupts — an unusual visual, sound, or format break.',
   },
   holdRate: {
     causes:
-      'People are dropping off after the hook. The video isn\'t delivering on its opening promise, pacing is too slow, or there\'s no reason to keep watching once the initial curiosity is satisfied.',
+      "People are dropping off after the hook. The video isn't delivering on its opening promise, pacing is too slow, or there's no reason to keep watching once the initial curiosity is satisfied.",
     genericFixes:
       'Cut every second of dead air. Tease the payoff early, deliver it late. Use text overlays to reinforce spoken points. Cut between angles or b-roll every 3–5 seconds. Build a micro-narrative — problem, agitation, solution — to pull people through.',
   },
   ctr: {
     causes:
-      'The ad isn\'t translating attention into intent. Viewers are watching but not clicking — usually a mismatch between what the ad promises and what the CTA delivers, or a CTA that\'s buried or too passive.',
+      "The ad isn't translating attention into intent. Viewers are watching but not clicking — usually a mismatch between what the ad promises and what the CTA delivers, or a CTA that's buried or too passive.",
     genericFixes:
       'Make the CTA explicit and urgent — tell them exactly what to do and why now. Ensure the offer or value prop is crystal clear before the CTA. Test a more specific CTA (e.g. "See the full range" vs "Shop now"). Move the CTA earlier. Test overlaying the CTA visually, not just verbally.',
   },
@@ -210,21 +200,15 @@ export const PLAYBOOKS: Record<MetricId, { causes: string; genericFixes: string 
     genericFixes:
       'Audit the checkout flow for unnecessary steps. Add trust signals near the buy button. Make shipping costs and delivery windows clear before checkout. Test cart abandonment incentives. Ensure mobile checkout is frictionless.',
   },
-  cpm: {
-    causes:
-      'High CPM relative to target means the ad is competing for expensive audiences, or the creative quality score is low (Meta/TikTok reward engaging creatives with cheaper distribution).',
-    genericFixes:
-      'Improve creative engagement metrics first — better Hook Rate and Hold Rate will lower CPM organically. Test broader audiences where auction costs are lower. Check creative fatigue — high frequency on a played-out creative drives CPM up.',
-  },
   cpa: {
     causes:
-      'CPA above target means the full funnel isn\'t converting efficiently enough. Could be a creative problem (wrong audience self-selecting), a landing page problem, or a checkout problem — need to look at where the funnel breaks.',
+      "CPA above target means the full funnel isn't converting efficiently enough. Could be a creative problem (wrong audience self-selecting), a landing page problem, or a checkout problem — need to look at where the funnel breaks.",
     genericFixes:
       'Identify the specific funnel leak (CTR, LPQ, ATC rate, checkout CVR) and fix that step first. Test creatives that speak directly to the buyer\'s final objection. Retargeting campaigns often have lower CPA — check if prospecting vs retargeting split is optimised.',
   },
   roas: {
     causes:
-      'ROAS below target is the output of all other leaks combined — it\'s a signal that something upstream in the funnel is broken rather than a root cause in itself.',
+      "ROAS below target is the output of all other leaks combined — it's a signal that something upstream in the funnel is broken rather than a root cause in itself.",
     genericFixes:
       'Trace back through the funnel: Hook Rate → Hold Rate → CTR → CPLPV → LPQ → ATC → Checkout CVR. Fix the earliest leak first. Also check AOV — test upsells or bundles to increase average order value without needing more conversions.',
   },

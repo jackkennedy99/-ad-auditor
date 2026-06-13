@@ -2,70 +2,75 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { METRICS, PLAYBOOKS, type Grade, type MetricId } from '@/lib/metrics'
 
-interface LeakInput {
-  id: MetricId
-  value: number
-  grade: Grade
-  clientTarget?: number
-}
-
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     return NextResponse.json({ error: 'API key not configured' }, { status: 500 })
   }
 
-  const { leaks, adType, transcript, imageBase64, imageMimeType, brandContext } =
-    await req.json()
+  const {
+    metricId,
+    metricValue,
+    metricGrade,
+    clientTarget,
+    adType,
+    transcript,
+    imageBase64,
+    imageMimeType,
+    brandContext,
+  }: {
+    metricId: MetricId
+    metricValue: number
+    metricGrade: Grade
+    clientTarget?: number
+    adType: 'video' | 'static'
+    transcript?: string
+    imageBase64?: string
+    imageMimeType?: string
+    brandContext?: string
+  } = await req.json()
 
-  if (!leaks || leaks.length === 0) {
-    return NextResponse.json({ error: 'No leaks provided' }, { status: 400 })
+  const config = METRICS.find((m) => m.id === metricId)
+  if (!config) {
+    return NextResponse.json({ error: 'Unknown metric' }, { status: 400 })
   }
+
+  const playbook = PLAYBOOKS[metricId]
+  const valueStr =
+    config.unit === '$'
+      ? `$${metricValue}`
+      : config.unit === 'x'
+      ? `${metricValue}x`
+      : `${metricValue}%`
+  const targetStr =
+    clientTarget
+      ? ` (client target: ${config.unit === '$' ? '$' : ''}${clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
+      : ''
 
   const client = new Anthropic({ apiKey })
 
-  // Build leak descriptions
-  const leakDescriptions = leaks
-    .map((leak: LeakInput) => {
-      const config = METRICS.find((m) => m.id === leak.id)!
-      const playbook = PLAYBOOKS[leak.id]
-      const valueStr =
-        config.unit === '$'
-          ? `$${leak.value}`
-          : config.unit === 'x'
-          ? `${leak.value}x`
-          : `${leak.value}%`
-      const targetStr = leak.clientTarget
-        ? ` (target: ${config.unit === '$' ? '$' : ''}${leak.clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
-        : ''
-      return `**${config.label}**: ${valueStr}${targetStr} — ${leak.grade.toUpperCase()}
-  Why this leaks: ${playbook.causes}`
-    })
-    .join('\n\n')
+  const systemPrompt = `You are a performance creative strategist. You write clear, direct, specific recommendations — not corporate, not generic, not salesy. You think like someone who has run hundreds of DTC paid social campaigns. You reference the actual ad content in every recommendation.`
 
-  const systemPrompt = `You are a performance creative strategist. You write clear, direct, specific recommendations — not corporate, not salesy, not generic. You reference actual content. You think like someone who has worked on hundreds of DTC paid social campaigns.`
+  const userPrompt = `A Meta ad is underperforming on one metric. Analyse the ad and give specific, ready-to-test iterations.
 
-  const userPrompt = `An ad is underperforming on the following metrics. Generate specific, ready-to-test creative iterations for each leak.
+METRIC: ${config.label} — ${valueStr}${targetStr} (${metricGrade.toUpperCase()})
+CONTEXT: ${playbook.causes}
 
-${brandContext ? `BRAND CONTEXT (from their website):\n${brandContext}\n\n` : ''}AD TYPE: ${adType === 'video' ? 'Video' : 'Static image'}
-${adType === 'video' && transcript ? `TRANSCRIPT:\n${transcript}` : adType === 'static' && !imageBase64 ? 'No ad content provided.' : ''}
+${brandContext ? `BRAND (from website):\n${brandContext}\n` : ''}
+AD TYPE: ${adType === 'video' ? 'Video' : 'Static image'}
+${adType === 'video' && transcript ? `TRANSCRIPT:\n${transcript}` : ''}
 
-LEAKS:
-${leakDescriptions}
-
-For each leak, write:
-**[METRIC LABEL]**
-What's likely causing it in this specific ad: [1–2 sentences that reference the actual ad content]
-Iterations to test:
-1. [Specific, concrete iteration — reference actual content: the hook line, the visual, the CTA wording, the offer framing, etc.]
+Give me:
+CAUSE: [1–2 sentences on what specifically in THIS ad is causing ${config.label} to underperform. Reference actual content — hook wording, visuals, CTA, offer framing, etc. Not generic.]
+1. [Specific iteration — one sentence briefable to an editor or creator. Reference the actual content.]
 2. [Another iteration]
 3. [Another iteration]
 
 Rules:
-- Reference the actual ad content in every iteration — no generic advice
-- Each iteration should be something you can brief to an editor or creator in one sentence
-- Don't repeat the same idea with different words
-- Be direct. Short sentences. No filler.`
+- Reference the actual ad content in every iteration (exact words, visuals, CTA, structure)
+- Each iteration = one concrete thing to change or test
+- No generic advice. No filler. Short sentences.
+- Don't repeat the same idea with different words.`
 
   try {
     let messageContent: Anthropic.MessageParam['content']
@@ -76,7 +81,7 @@ Rules:
           type: 'image',
           source: {
             type: 'base64',
-            media_type: imageMimeType || 'image/jpeg',
+            media_type: (imageMimeType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp') || 'image/jpeg',
             data: imageBase64,
           },
         },
@@ -88,15 +93,20 @@ Rules:
 
     const message = await client.messages.create({
       model: 'claude-opus-4-5',
-      max_tokens: 2048,
+      max_tokens: 1024,
       system: systemPrompt,
       messages: [{ role: 'user', content: messageContent }],
     })
 
-    const text =
-      message.content[0].type === 'text' ? message.content[0].text : ''
+    const text = message.content[0].type === 'text' ? message.content[0].text : ''
 
-    return NextResponse.json({ recommendations: text })
+    // Parse cause and iterations
+    const causeMatch = text.match(/CAUSE:\s*([\s\S]+?)(?=\n\d+\.|$)/)
+    const cause = causeMatch ? causeMatch[1].trim() : ''
+    const iterMatches = Array.from(text.matchAll(/^\d+\.\s+(.+)$/gm))
+    const iterations = iterMatches.map((m) => m[1].trim())
+
+    return NextResponse.json({ cause, iterations })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })
