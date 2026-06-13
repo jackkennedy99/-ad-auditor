@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { METRICS, PLAYBOOKS, type Grade, type MetricId } from '@/lib/metrics'
+import { METRICS, type Grade, type MetricId } from '@/lib/metrics'
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -35,17 +35,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unknown metric' }, { status: 400 })
   }
 
-  const playbook = PLAYBOOKS[metricId]
   const valueStr =
     config.unit === '$'
       ? `$${metricValue}`
       : config.unit === 'x'
       ? `${metricValue}x`
-      : `${metricValue}%`
-  const targetStr =
-    clientTarget
-      ? ` (client target: ${config.unit === '$' ? '$' : ''}${clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
-      : ''
+      : config.unit === '%'
+      ? `${metricValue}%`
+      : `${metricValue}`
+
+  const targetStr = clientTarget
+    ? ` (client target: ${config.unit === '$' ? '$' : ''}${clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
+    : ''
 
   const client = new Anthropic({ apiKey })
 
@@ -54,7 +55,9 @@ export async function POST(req: NextRequest) {
   const userPrompt = `A Meta ad is underperforming on one metric. Analyse the ad and give specific, ready-to-test iterations.
 
 METRIC: ${config.label} — ${valueStr}${targetStr} (${metricGrade.toUpperCase()})
-CONTEXT: ${playbook.causes}
+WHAT IT MEASURES: ${config.what}
+WHY IT MATTERS: ${config.why}
+GENERAL ADVICE: ${config.advice}
 
 ${brandContext ? `BRAND (from website):\n${brandContext}\n` : ''}
 AD TYPE: ${adType === 'video' ? 'Video' : 'Static image'}
@@ -100,7 +103,6 @@ Rules:
 
     const text = message.content[0].type === 'text' ? message.content[0].text : ''
 
-    // Parse cause and iterations
     const causeMatch = text.match(/CAUSE:\s*([\s\S]+?)(?=\n\d+\.|$)/)
     const cause = causeMatch ? causeMatch[1].trim() : ''
     const iterMatches = Array.from(text.matchAll(/^\d+\.\s+(.+)$/gm))
