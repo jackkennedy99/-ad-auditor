@@ -6,12 +6,14 @@ import {
   KEY_METRICS,
   SOFT_METRICS,
   HARD_METRICS,
+  FUNNEL_METRICS,
   CATEGORY_META,
   GRADE_STYLES,
   GRADE_LABELS,
   scoreMetric,
   isLeak,
   formatValue,
+  deriveFunnelRates,
   type MetricId,
   type Category,
   type Grade,
@@ -83,11 +85,6 @@ const METRIC_ICONS: Record<MetricId, JSX.Element> = {
       <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
     </svg>
   ),
-  lpQuality: (
-    <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-      <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clipRule="evenodd" />
-    </svg>
-  ),
   atc: (
     <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
       <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3zM16 16.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zM6.5 18a1.5 1.5 0 100-3 1.5 1.5 0 000 3z" />
@@ -107,6 +104,29 @@ const METRIC_ICONS: Record<MetricId, JSX.Element> = {
   atcPurchase: (
     <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
       <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
+    </svg>
+  ),
+  // Funnel rates
+  lpQuality: (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11 4a1 1 0 10-2 0v4a1 1 0 102 0V7zm-3 1a1 1 0 10-2 0v3a1 1 0 102 0V8zM8 9a1 1 0 00-2 0v2a1 1 0 102 0V9z" clipRule="evenodd" />
+    </svg>
+  ),
+  atcIc: (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path d="M3 1a1 1 0 000 2h1.22l.305 1.222a.997.997 0 00.01.042l1.358 5.43-.893.892C3.74 11.846 4.632 14 6.414 14H15a1 1 0 000-2H6.414l1-1H14a1 1 0 00.894-.553l3-6A1 1 0 0017 3H6.28l-.31-1.243A1 1 0 005 1H3z" />
+      <path d="M11 17a1 1 0 100-2 1 1 0 000 2zM7 17a1 1 0 100-2 1 1 0 000 2z" />
+    </svg>
+  ),
+  icPurchase: (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
+      <path fillRule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clipRule="evenodd" />
+    </svg>
+  ),
+  lpvPurchase: (
+    <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+      <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm4.707 3.707a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L8.414 9H10a3 3 0 013 3 1 1 0 102 0 5 5 0 00-5-5H8.414l1.293-1.293z" clipRule="evenodd" />
     </svg>
   ),
 }
@@ -205,6 +225,11 @@ function MetricDetail({
   onAdTypeChange,
   onTranscriptChange,
   onAdImageChange,
+  videoUrl,
+  onVideoUrlChange,
+  onTranscribe,
+  transcribing,
+  transcribeError,
   rec,
   recLoading,
   recError,
@@ -225,6 +250,11 @@ function MetricDetail({
   onAdTypeChange: (t: 'video' | 'static') => void
   onTranscriptChange: (v: string) => void
   onAdImageChange: (f: File) => void
+  videoUrl: string
+  onVideoUrlChange: (v: string) => void
+  onTranscribe: () => void
+  transcribing: boolean
+  transcribeError: string
   rec?: RecState
   recLoading?: boolean
   recError?: string
@@ -307,14 +337,54 @@ function MetricDetail({
                 </div>
 
                 {adType === 'video' ? (
-                  <textarea
-                    rows={5}
-                    placeholder="Paste the script or transcript here…"
-                    value={transcript}
-                    onChange={(e) => onTranscriptChange(e.target.value)}
-                    className="w-full rounded-xl border text-sm px-4 py-3 focus:outline-none resize-none mb-3"
-                    style={{ borderColor: '#E5E7EB', backgroundColor: '#FAFAFA' }}
-                  />
+                  <div className="mb-3">
+                    {/* URL transcription input */}
+                    <div
+                      className="flex gap-2 mb-2 p-2 rounded-xl"
+                      style={{ backgroundColor: '#F0F5F0', border: '1px solid #C0D4C0' }}
+                    >
+                      <input
+                        type="url"
+                        placeholder="Paste video URL to auto-transcribe…"
+                        value={videoUrl}
+                        onChange={(e) => onVideoUrlChange(e.target.value)}
+                        className="flex-1 text-xs px-2.5 py-1.5 rounded-lg border-0 focus:outline-none bg-transparent"
+                        style={{ color: '#2D3428' }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' && videoUrl.trim()) onTranscribe() }}
+                      />
+                      <button
+                        onClick={onTranscribe}
+                        disabled={!videoUrl.trim() || transcribing}
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-40 transition-all"
+                        style={{ backgroundColor: '#5A8E5A' }}
+                      >
+                        {transcribing ? <><Spinner /> Transcribing…</> : (
+                          <>
+                            <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                              <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                            </svg>
+                            Transcribe
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    {transcribeError && (
+                      <p className="text-xs mb-2" style={{ color: '#DC2626' }}>{transcribeError}</p>
+                    )}
+
+                    {/* Transcript textarea */}
+                    <textarea
+                      rows={transcript ? 5 : 3}
+                      placeholder={transcribing ? 'Transcribing…' : 'Transcript will appear here, or paste it manually'}
+                      value={transcript}
+                      onChange={(e) => onTranscriptChange(e.target.value)}
+                      className="w-full rounded-xl border text-sm px-4 py-3 focus:outline-none resize-none"
+                      style={{
+                        borderColor: transcript ? '#C0D4C0' : '#E5E7EB',
+                        backgroundColor: transcript ? '#F0F5F0' : '#FAFAFA',
+                      }}
+                    />
+                  </div>
                 ) : (
                   <div
                     onClick={() => adImageInputRef.current?.click()}
@@ -580,6 +650,9 @@ export default function AdAuditor() {
   const [brandUrl, setBrandUrl] = useState('')
   const [brandContext, setBrandContext] = useState('')
   const [urlLoading, setUrlLoading] = useState(false)
+  const [videoUrl, setVideoUrl] = useState('')
+  const [transcribing, setTranscribing] = useState(false)
+  const [transcribeError, setTranscribeError] = useState('')
   const adImageInputRef = useRef<HTMLInputElement>(null)
 
   // ── Recommendations
@@ -590,8 +663,10 @@ export default function AdAuditor() {
   // ── Scoring ────────────────────────────────────────────────────────────────
 
   const computeScores = useCallback((vals: Values, tgts: Targets): ScoredMetric[] => {
+    // Auto-calculate funnel rates from raw values where not already provided
+    const allVals = { ...vals, ...deriveFunnelRates(vals) }
     return METRICS.flatMap((config) => {
-      const val = vals[config.id]
+      const val = allVals[config.id]
       if (val === undefined || val === null) return []
       let clientTarget: number | undefined
       if (config.id === 'roas' && tgts.roas) clientTarget = parseFloat(tgts.roas) || undefined
@@ -665,6 +740,28 @@ export default function AdAuditor() {
     const t = { ...targets, [key]: val }
     setTargets(t)
     refreshScores(values, t)
+  }
+
+  // ── Video transcription ────────────────────────────────────────────────────
+
+  const handleTranscribe = async () => {
+    if (!videoUrl.trim()) return
+    setTranscribing(true)
+    setTranscribeError('')
+    try {
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: videoUrl }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setTranscript(data.transcript)
+    } catch (err) {
+      setTranscribeError(err instanceof Error ? err.message : 'Transcription failed')
+    } finally {
+      setTranscribing(false)
+    }
   }
 
   // ── Brand URL scan ─────────────────────────────────────────────────────────
@@ -758,6 +855,11 @@ export default function AdAuditor() {
           r.onload = (e) => setAdImagePreview(e.target?.result as string)
           r.readAsDataURL(f)
         },
+        videoUrl,
+        onVideoUrlChange: setVideoUrl,
+        onTranscribe: handleTranscribe,
+        transcribing,
+        transcribeError,
         rec: recs[selectedMetric],
         recLoading: recLoading[selectedMetric],
         recError: recErrors[selectedMetric],
@@ -881,6 +983,18 @@ export default function AdAuditor() {
                 scores={scores}
               />
               {selectedMetric && selectedCategory === 'hard' && detailProps && (
+                <MetricDetail {...detailProps} />
+              )}
+
+              {/* FUNNEL RATES */}
+              <CategoryPill
+                category="funnel"
+                metrics={FUNNEL_METRICS}
+                selected={selectedMetric}
+                onSelect={(id) => setSelectedMetric(id)}
+                scores={scores}
+              />
+              {selectedMetric && selectedCategory === 'funnel' && detailProps && (
                 <MetricDetail {...detailProps} />
               )}
             </div>
@@ -1081,6 +1195,10 @@ export default function AdAuditor() {
               {/* HARD */}
               <CategoryPill category="hard" metrics={HARD_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} />
               {selectedMetric && selectedCategory === 'hard' && detailProps && <MetricDetail {...detailProps} />}
+
+              {/* FUNNEL RATES */}
+              <CategoryPill category="funnel" metrics={FUNNEL_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} />
+              {selectedMetric && selectedCategory === 'funnel' && detailProps && <MetricDetail {...detailProps} />}
             </div>
           </div>
         )}

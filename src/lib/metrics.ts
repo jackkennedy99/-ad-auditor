@@ -1,4 +1,4 @@
-export type Category = 'key' | 'soft' | 'hard'
+export type Category = 'key' | 'soft' | 'hard' | 'funnel'
 export type Grade = 'bad' | 'ok' | 'good' | 'great'
 export type Direction = 'higher' | 'lower' | 'none'
 
@@ -6,9 +6,11 @@ export type MetricId =
   // Key
   | 'amountSpent' | 'cpm' | 'conversionValue' | 'roas' | 'cpa'
   // Soft
-  | 'hookRate' | 'holdRate' | 'ctr' | 'linkClicks' | 'cplc' | 'lpv' | 'cplpv' | 'lpQuality'
+  | 'hookRate' | 'holdRate' | 'ctr' | 'linkClicks' | 'cplc' | 'lpv' | 'cplpv'
   // Hard
-  | 'atc' | 'initiateCheckout' | 'purchases' | 'atcPurchase'
+  | 'atc' | 'initiateCheckout' | 'purchases'
+  // Funnel rates
+  | 'lpQuality' | 'atcIc' | 'atcPurchase' | 'icPurchase' | 'lpvPurchase'
 
 export interface MetricConfig {
   id: MetricId
@@ -19,6 +21,8 @@ export interface MetricConfig {
   thresholds?: { ok: number; good: number; great: number }
   perClient: boolean
   scoreable: boolean
+  // For auto-calculation from other metric values
+  calcFrom?: { numerator: MetricId; denominator: MetricId }
   what: string
   why: string
   advice: string
@@ -36,7 +40,7 @@ export const METRICS: MetricConfig[] = [
     scoreable: false,
     what: 'Total budget spent on this ad during the selected period.',
     why: 'Sets context for every other metric — they only make sense relative to spend. Low spend means less data and less reliable signals.',
-    advice: "Ensure you're spending enough to exit the learning phase (typically 50+ optimisation events per ad set per week). Don't judge performance under £/$50 spend unless CPA is extremely high.",
+    advice: "Ensure you're spending enough to exit the learning phase (typically 50+ optimisation events per ad set per week). Don't judge performance under $50 spend unless CPA is extremely high.",
   },
   {
     id: 'cpm',
@@ -70,7 +74,7 @@ export const METRICS: MetricConfig[] = [
     direction: 'higher',
     perClient: true,
     scoreable: true,
-    what: 'Revenue returned per £/$1 spent. Conversion Value ÷ Amount Spent.',
+    what: 'Revenue returned per $1 spent. Conversion Value ÷ Amount Spent.',
     why: 'The efficiency metric for purchase campaigns. Target varies by margin — a 3x ROAS may be unprofitable at 20% margin but excellent at 60% margin.',
     advice: 'ROAS below target is rarely a single-fix problem. Trace the funnel from the top: Hook Rate → Hold Rate → CTR → LP Quality → ATC → Checkout CVR. Fix the earliest leak first.',
   },
@@ -124,7 +128,7 @@ export const METRICS: MetricConfig[] = [
     perClient: false,
     scoreable: true,
     what: 'Link clicks as a % of impressions — specifically link click CTR, not all-click CTR.',
-    why: 'Are viewers taking action? High CTR means the offer resonated enough to prompt a click. Low CTR with good Hook/Hold means attention is there but the offer or CTA isn\'t converting it.',
+    why: "Are viewers taking action? High CTR means the offer resonated enough to prompt a click. Low CTR with good Hook/Hold means attention is there but the offer or CTA isn't converting it.",
     advice: 'Make the CTA explicit, visual, and urgent. Ensure the offer or value prop is crystal clear before the CTA moment. Test more specific CTAs. Move the CTA earlier if viewers are dropping before it.',
   },
   {
@@ -162,12 +166,12 @@ export const METRICS: MetricConfig[] = [
     scoreable: false,
     what: 'Number of people who successfully loaded your landing page after clicking.',
     why: "A click only counts if the page actually loads. The gap between Link Clicks and LPV reveals page load friction. If the gap is large, you're paying for traffic that never arrives.",
-    advice: 'Compare LPV to Link Clicks and calculate LC→LPV%. A significant gap almost always means mobile page load speed. Audit with Google PageSpeed Insights and eliminate redirect chains.',
+    advice: 'Compare LPV to Link Clicks (see LC→LPV% in Funnel Rates). A significant gap almost always means mobile page load speed. Audit with Google PageSpeed Insights and eliminate redirect chains.',
   },
   {
     id: 'cplpv',
     category: 'soft',
-    label: 'Cost per Landing Page View',
+    label: 'Cost per LPV',
     unit: '$',
     direction: 'lower',
     thresholds: { ok: 2.5, good: 1.5, great: 0.75 },
@@ -176,19 +180,6 @@ export const METRICS: MetricConfig[] = [
     what: 'What you pay per person who actually lands on your page. Amount Spent ÷ Landing Page Views.',
     why: 'More accurate than CPLC — only counts traffic that actually arrived. A big gap between CPLC and CPLPV means page load friction is wasting a portion of every pound you spend.',
     advice: 'If CPLPV >> CPLC, fix page load speed. If both are high, the creative is driving low-quality clicks — look at CTR quality and audience targeting. High CPLPV with low CPM and good CTR = load speed issue.',
-  },
-  {
-    id: 'lpQuality',
-    category: 'soft',
-    label: 'Link Click > LPV %',
-    unit: '%',
-    direction: 'higher',
-    thresholds: { ok: 50, good: 70, great: 85 },
-    perClient: false,
-    scoreable: true,
-    what: 'Landing Page Views ÷ Link Clicks × 100. What % of clicks actually load the page.',
-    why: 'Measures traffic-to-page conversion quality. A low % means people clicked but the page bounced before loading — a technical problem, not a creative one.',
-    advice: 'Below 70% is almost always mobile page load speed. Run Google PageSpeed on mobile. Check for redirect chains. Test a lighter, faster landing page variant. Ensure destination URL is correct and direct.',
   },
 
   // ── HARD ─────────────────────────────────────────────────────────────────
@@ -201,7 +192,7 @@ export const METRICS: MetricConfig[] = [
     perClient: false,
     scoreable: false,
     what: 'Number of people who added a product to their cart after arriving from this ad.',
-    why: 'First signal of purchase intent on the landing page. Low ATCs relative to LPV means the page isn\'t converting browsers into buyers — a product page or offer problem, not a creative one.',
+    why: "First signal of purchase intent on the landing page. Low ATCs relative to LPV means the page isn't converting browsers into buyers — a product page or offer problem, not a creative one.",
     advice: 'Low ATCs vs LPV = test stronger social proof, clearer offer/value prop, more prominent add-to-cart CTA on page. Ensure the landing page matches what the ad promised — a jarring transition kills intent.',
   },
   {
@@ -228,18 +219,77 @@ export const METRICS: MetricConfig[] = [
     why: 'The core conversion metric — did the ad actually sell? Low purchases relative to IC means checkout friction or payment hesitation at the final step.',
     advice: 'Low purchases vs IC = audit checkout UX for friction. Check for unexpected costs surfacing late (tax, fees). Ensure payment options are trusted and visible. Test one-page checkout if currently multi-step.',
   },
+
+  // ── FUNNEL RATES ──────────────────────────────────────────────────────────
+  {
+    id: 'lpQuality',
+    category: 'funnel',
+    label: 'LC → LPV %',
+    unit: '%',
+    direction: 'higher',
+    thresholds: { ok: 50, good: 70, great: 85 },
+    perClient: false,
+    scoreable: true,
+    calcFrom: { numerator: 'lpv', denominator: 'linkClicks' },
+    what: 'Landing Page Views ÷ Link Clicks × 100. What % of clicks actually load the page.',
+    why: 'Measures traffic delivery quality. A low % means people clicked but the page bounced before loading — a technical problem, not a creative one.',
+    advice: 'Below 70% is almost always mobile page load speed. Run Google PageSpeed on mobile. Check for redirect chains. Test a lighter, faster landing page variant. Ensure destination URL is correct and direct.',
+  },
+  {
+    id: 'atcIc',
+    category: 'funnel',
+    label: 'ATC → IC %',
+    unit: '%',
+    direction: 'higher',
+    thresholds: { ok: 35, good: 55, great: 70 },
+    perClient: false,
+    scoreable: true,
+    calcFrom: { numerator: 'initiateCheckout', denominator: 'atc' },
+    what: 'Initiate Checkouts ÷ Add to Carts × 100. What % of cart-adders actually start checkout.',
+    why: 'Reveals friction between the cart and checkout. Strong ATC numbers mean the ad and page created real intent — if that intent is dying before checkout, something in the cart experience is killing it.',
+    advice: 'Low ATC→IC usually means shipping cost shock or friction on the cart page. Show shipping costs earlier, simplify the cart page, add a trust signal near the checkout button. Test removing login requirements.',
+  },
   {
     id: 'atcPurchase',
-    category: 'hard',
-    label: 'ATC > Purchase %',
+    category: 'funnel',
+    label: 'ATC → Purchase %',
     unit: '%',
     direction: 'higher',
     thresholds: { ok: 15, good: 25, great: 40 },
     perClient: false,
     scoreable: true,
+    calcFrom: { numerator: 'purchases', denominator: 'atc' },
     what: 'Purchases ÷ Add to Carts × 100. What % of people who added to cart actually bought.',
-    why: 'Checkout funnel efficiency. Of everyone who showed buying intent, how many followed through? Below 25% almost always means checkout friction, not a traffic or creative problem.',
+    why: 'A composite view of the checkout funnel — captures both cart-to-checkout and checkout-to-purchase drop-off in one number. Below 25% almost always means checkout friction somewhere in the flow.',
     advice: 'Check for price shock at checkout (shipping/tax reveal), too many checkout steps, weak trust signals near the buy button, or slow checkout load on mobile. Test accelerated checkout options (Shop Pay, Apple Pay).',
+  },
+  {
+    id: 'icPurchase',
+    category: 'funnel',
+    label: 'IC → Purchase %',
+    unit: '%',
+    direction: 'higher',
+    thresholds: { ok: 40, good: 60, great: 78 },
+    perClient: false,
+    scoreable: true,
+    calcFrom: { numerator: 'purchases', denominator: 'initiateCheckout' },
+    what: 'Purchases ÷ Initiate Checkouts × 100. What % of people who started checkout actually completed it.',
+    why: 'The most specific checkout signal — someone has already reached the checkout page and started filling it in. Drop-off here is almost always a payment, UX, or trust issue on the checkout page itself.',
+    advice: 'Below 60% at this stage points to: payment method friction (add Shop Pay, Apple Pay, Klarna), unexpected fees appearing at checkout, slow checkout load on mobile, or lack of trust signals (SSL badge, reviews) near the pay button.',
+  },
+  {
+    id: 'lpvPurchase',
+    category: 'funnel',
+    label: 'LPV → Purchase %',
+    unit: '%',
+    direction: 'higher',
+    thresholds: { ok: 0.5, good: 1.5, great: 3 },
+    perClient: false,
+    scoreable: true,
+    calcFrom: { numerator: 'purchases', denominator: 'lpv' },
+    what: 'Purchases ÷ Landing Page Views × 100. Overall page-to-purchase conversion rate from paid social traffic.',
+    why: 'The single number that captures your entire on-site funnel. Low LPV→Purchase means somewhere between the page load and the purchase, you\'re losing people. Great for benchmarking landing page performance over time.',
+    advice: 'This is a diagnostic top-line number — use the other funnel rates to find where the drop-off happens. Low LPV→Purchase with high ATC→Purchase = ATC rate is the problem (page). Low ATC→Purchase with high IC→Purchase = cart friction.',
   },
 ]
 
@@ -272,6 +322,15 @@ export const CATEGORY_META = {
     chevronBorder: '#3B82F6',
     textColor: '#1E3A8A',
     pillBg: '#BFDBFE',
+  },
+  funnel: {
+    label: 'Funnel Rates',
+    bg: '#FAF5FF',
+    border: '#D8B4FE',
+    accent: '#7C3AED',
+    chevronBorder: '#A855F7',
+    textColor: '#4C1D95',
+    pillBg: '#EDE9FE',
   },
 } as const
 
@@ -335,12 +394,34 @@ export function formatValue(config: MetricConfig, value: number): string {
       : `$${value % 1 === 0 ? value : value.toFixed(2)}`
   }
   if (config.unit === 'x') return `${value}x`
-  if (config.unit === '%') return `${value}%`
+  if (config.unit === '%') {
+    // Show one decimal for small percentages
+    return value < 1 ? `${value.toFixed(2)}%` : `${value % 1 === 0 ? value : value.toFixed(1)}%`
+  }
   return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : `${value}`
 }
 
 // ── Grouped metric lists ──────────────────────────────────────────────────
 
-export const KEY_METRICS = METRICS.filter((m) => m.category === 'key')
-export const SOFT_METRICS = METRICS.filter((m) => m.category === 'soft')
-export const HARD_METRICS = METRICS.filter((m) => m.category === 'hard')
+export const KEY_METRICS    = METRICS.filter((m) => m.category === 'key')
+export const SOFT_METRICS   = METRICS.filter((m) => m.category === 'soft')
+export const HARD_METRICS   = METRICS.filter((m) => m.category === 'hard')
+export const FUNNEL_METRICS = METRICS.filter((m) => m.category === 'funnel')
+
+// ── Auto-calculate funnel rates from raw values ───────────────────────────
+
+export function deriveFunnelRates(
+  values: Partial<Record<MetricId, number>>
+): Partial<Record<MetricId, number>> {
+  const derived: Partial<Record<MetricId, number>> = {}
+  for (const config of METRICS) {
+    if (!config.calcFrom) continue
+    if (values[config.id] !== undefined) continue // already provided
+    const num = values[config.calcFrom.numerator]
+    const den = values[config.calcFrom.denominator]
+    if (num !== undefined && den !== undefined && den > 0) {
+      derived[config.id] = parseFloat(((num / den) * 100).toFixed(2))
+    }
+  }
+  return derived
+}
