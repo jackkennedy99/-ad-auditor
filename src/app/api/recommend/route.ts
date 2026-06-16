@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import { METRICS, type Grade, type MetricId } from '@/lib/metrics'
+import { METRICS, GRADE_LABELS, formatValue, isLeak, type Grade, type MetricId } from '@/lib/metrics'
+
+type ScoredMetric = { id: MetricId; grade: Grade | null; value: number }
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -13,21 +15,33 @@ export async function POST(req: NextRequest) {
     metricValue,
     metricGrade,
     clientTarget,
+    allScores,
     adType,
     transcript,
     imageBase64,
     imageMimeType,
     brandContext,
+    chatContext,
+    clientBenchmarks,
   }: {
     metricId: MetricId
     metricValue: number
     metricGrade: Grade
     clientTarget?: number
+    allScores?: ScoredMetric[]
     adType: 'video' | 'static'
     transcript?: string
     imageBase64?: string
     imageMimeType?: string
     brandContext?: string
+    chatContext?: string
+    clientBenchmarks?: {
+      breakevenCpa?: string
+      accountCpa?: string
+      aov?: string
+      ltv?: string
+      subscriberRate?: string
+    }
   } = await req.json()
 
   const config = METRICS.find((m) => m.id === metricId)
@@ -35,44 +49,85 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unknown metric' }, { status: 400 })
   }
 
+  const isUnderperforming = isLeak(metricGrade)
+
+  // Build a full picture of the ad's performance for the AI to reason from
+  let fullPictureBlock = ''
+  if (allScores && allScores.length > 0) {
+    const lines = allScores
+      .map((s) => {
+        const c = METRICS.find((m) => m.id === s.id)
+        if (!c) return null
+        const gradeLabel = s.grade ? GRADE_LABELS[s.grade] : 'n/a'
+        return `  ${c.label}: ${formatValue(c, s.value)} (${gradeLabel})`
+      })
+      .filter(Boolean)
+    fullPictureBlock = `\nFULL AD PERFORMANCE SNAPSHOT:\n${lines.join('\n')}\n`
+  }
+
   const valueStr =
-    config.unit === '$'
-      ? `$${metricValue}`
-      : config.unit === 'x'
-      ? `${metricValue}x`
-      : config.unit === '%'
-      ? `${metricValue}%`
-      : `${metricValue}`
+    config.unit === '$' ? `$${metricValue}`
+    : config.unit === 'x' ? `${metricValue}x`
+    : config.unit === '%' ? `${metricValue}%`
+    : `${metricValue}`
 
   const targetStr = clientTarget
     ? ` (client target: ${config.unit === '$' ? '$' : ''}${clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
     : ''
 
+  // Build client benchmarks context block
+  let benchmarksBlock = ''
+  if (clientBenchmarks && Object.values(clientBenchmarks).some(Boolean)) {
+    const lines = [
+      clientBenchmarks.breakevenCpa ? `  Breakeven CPA: $${clientBenchmarks.breakevenCpa}` : null,
+      clientBenchmarks.accountCpa ? `  Account-wide CPA: $${clientBenchmarks.accountCpa}` : null,
+      clientBenchmarks.aov ? `  Average Order Value (AOV): $${clientBenchmarks.aov}` : null,
+      clientBenchmarks.ltv ? `  Lifetime Value (LTV): $${clientBenchmarks.ltv}` : null,
+      clientBenchmarks.subscriberRate ? `  Subscriber Conversion Rate: ${clientBenchmarks.subscriberRate}%` : null,
+    ].filter(Boolean)
+    benchmarksBlock = `\nCLIENT BENCHMARKS (use to contextualise performance — e.g. high LTV means a higher CPA may still be profitable):\n${lines.join('\n')}\n`
+  }
+
   const client = new Anthropic({ apiKey })
 
-  const systemPrompt = `You are a performance creative strategist. You write clear, direct, specific recommendations — not corporate, not generic, not salesy. You think like someone who has run hundreds of DTC paid social campaigns. You reference the actual ad content in every recommendation.`
+  const systemPrompt = `You are a performance creative strategist at a DTC agency. You write clear, direct, specific recommendations — not corporate, not generic, not salesy.
 
-  const userPrompt = `A Meta ad is underperforming on one metric. Analyse the ad and give specific, ready-to-test iterations.
+CRITICAL RULE — REASON FROM THE ACTUAL DATA:
+You have the full performance snapshot for this ad. When diagnosing a cause, use the actual numbers in front of you. Do NOT assume a metric is causing an issue if the data shows otherwise. For example: if CTR is 4.5% (Great) you must not suggest the problem is low CTR — find the real cause from what the numbers actually show. Cross-reference all the metrics together before concluding anything.
 
-METRIC: ${config.label} — ${valueStr}${targetStr} (${metricGrade.toUpperCase()})
+WHEN CLIENT BENCHMARKS ARE PROVIDED: Use them to reframe what good and bad actually means for this specific client. A CPA that looks Bad against generic benchmarks might be fine if LTV is high. A ROAS that looks Good might still be below breakeven. Always factor these in before making judgements.`
+
+  const verb = isUnderperforming ? 'underperforming on' : 'performing well on'
+  const taskLine = isUnderperforming
+    ? `Diagnose the specific cause and give ready-to-test iterations to improve it.`
+    : `Identify what's working and give iterations to push it even further.`
+
+  const userPrompt = `A Meta ad is ${verb} one metric. ${taskLine}
+${fullPictureBlock}${benchmarksBlock}
+FOCUS METRIC: ${config.label} — ${valueStr}${targetStr} (${metricGrade.toUpperCase()})
 WHAT IT MEASURES: ${config.what}
 WHY IT MATTERS: ${config.why}
-GENERAL ADVICE: ${config.advice}
 
-${brandContext ? `BRAND (from website):\n${brandContext}\n` : ''}
+${brandContext ? `BRAND CONTEXT (from website):\n${brandContext}\n` : ''}
+${chatContext ? `STRATEGIST NOTES:\n${chatContext}\n` : ''}
 AD TYPE: ${adType === 'video' ? 'Video' : 'Static image'}
 ${adType === 'video' && transcript ? `TRANSCRIPT:\n${transcript}` : ''}
 
-Give me:
-CAUSE: [1–2 sentences on what specifically in THIS ad is causing ${config.label} to underperform. Reference actual content — hook wording, visuals, CTA, offer framing, etc. Not generic.]
-1. [Specific iteration — one sentence briefable to an editor or creator. Reference the actual content.]
+${isUnderperforming ? `Give me:
+CAUSE: [1–2 sentences diagnosing the specific cause for THIS ad based on the actual data above — NOT blanket industry rules. Reference real content from the ad and cross-reference with the other metric values to pinpoint the real issue.]
+1. [Specific iteration — one briefable sentence referencing the actual content]
 2. [Another iteration]
-3. [Another iteration]
+3. [Another iteration]` : `Give me:
+WHAT'S WORKING: [1–2 sentences on specifically why this metric is performing well for this ad — reference the actual creative.]
+1. [Iteration to push this further or capitalise on it — one briefable sentence]
+2. [Another iteration]
+3. [Another iteration]`}
 
 Rules:
+- Always reason from the full data snapshot, never from isolated assumptions
 - Reference the actual ad content in every iteration (exact words, visuals, CTA, structure)
 - Each iteration = one concrete thing to change or test
-- No generic advice. No filler. Short sentences.
+- No filler. Short sentences.
 - Don't repeat the same idea with different words.`
 
   try {
@@ -103,7 +158,8 @@ Rules:
 
     const text = message.content[0].type === 'text' ? message.content[0].text : ''
 
-    const causeMatch = text.match(/CAUSE:\s*([\s\S]+?)(?=\n\d+\.|$)/)
+    // Parse either CAUSE: or WHAT'S WORKING:
+    const causeMatch = text.match(/(?:CAUSE|WHAT'S WORKING):\s*([\s\S]+?)(?=\n\d+\.|$)/)
     const cause = causeMatch ? causeMatch[1].trim() : ''
     const iterMatches = Array.from(text.matchAll(/^\d+\.\s+(.+)$/gm))
     const iterations = iterMatches.map((m) => m[1].trim())

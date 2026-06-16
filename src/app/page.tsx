@@ -307,13 +307,13 @@ function MetricDetail({
           </div>
         </div>
 
-        {/* Right: ad content + AI recommendations (only shown in audit mode with a leak) */}
-        {score && grade && isLeak(grade) && (
+        {/* Right: ad content + AI recommendations (shown whenever there's a scored value) */}
+        {score && grade && (
           <div>
             {!rec ? (
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: '#9CA3AF' }}>
-                  Get specific iterations
+                  {isLeak(grade) ? 'Diagnose & iterate' : 'Push it further'}
                 </div>
 
                 {/* Ad type toggle */}
@@ -439,7 +439,7 @@ function MetricDetail({
                   className="w-full py-2.5 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-40 flex items-center justify-center gap-2"
                   style={{ backgroundColor: '#5A8E5A' }}
                 >
-                  {recLoading ? <><Spinner /> Analysing…</> : 'Analyse this ad'}
+                  {recLoading ? <><Spinner /> Analysing…</> : isLeak(grade) ? 'Diagnose this metric' : 'Find opportunities'}
                 </button>
                 {!hasAdContent && (
                   <p className="text-xs text-center mt-2" style={{ color: '#9CA3AF' }}>
@@ -450,7 +450,7 @@ function MetricDetail({
               </div>
             ) : (
               <div>
-                <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#9CA3AF' }}>What's causing it</div>
+                <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#9CA3AF' }}>{isLeak(grade) ? "What's causing it" : "What's working"}</div>
                 <p className="text-sm leading-relaxed mb-5" style={{ color: '#374151' }}>{rec.cause}</p>
                 <div className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: '#9CA3AF' }}>Iterations to test</div>
                 <div className="space-y-2">
@@ -505,12 +505,24 @@ function CategoryPill({
   selected,
   onSelect,
   scores,
+  editingTile,
+  editingValue,
+  onStartEdit,
+  onEditValueChange,
+  onCommitEdit,
+  onCancelEdit,
 }: {
   category: Category
   metrics: MetricConfig[]
   selected: MetricId | null
   onSelect: (id: MetricId | null) => void
   scores?: ScoredMetric[]
+  editingTile?: MetricId | null
+  editingValue?: string
+  onStartEdit?: (id: MetricId, value: number) => void
+  onEditValueChange?: (v: string) => void
+  onCommitEdit?: () => void
+  onCancelEdit?: () => void
 }) {
   const meta = CATEGORY_META[category]
 
@@ -569,36 +581,75 @@ function CategoryPill({
                   {config.label}
                 </div>
 
-                {/* Divider */}
-                <div className="w-full mb-3" style={{ height: '1px', backgroundColor: '#F3F4F6' }} />
+                {/* Divider — only shown when there's a value */}
+                {score && <div className="w-full mb-3" style={{ height: '1px', backgroundColor: '#F3F4F6' }} />}
 
-                {/* Value or dash */}
-                <div className="mb-3 text-center" style={{ minHeight: '36px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {score ? (
-                    <div>
+                {/* Value — only shown when data exists */}
+                {score && (
+                  <div className="mb-3 text-center w-full">
+                    {editingTile === config.id && onStartEdit ? (
+                      /* ── Inline edit mode ── */
                       <div
-                        className="text-xl font-bold"
-                        style={{
-                          color: grade
-                            ? GRADE_STYLES[grade].text
-                            : '#111827',
-                        }}
+                        className="flex items-center gap-1 justify-center"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        {formatValue(config, score.value)}
+                        <input
+                          autoFocus
+                          type="number"
+                          value={editingValue}
+                          onChange={(e) => onEditValueChange?.(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') onCommitEdit?.()
+                            if (e.key === 'Escape') onCancelEdit?.()
+                          }}
+                          className="w-16 text-center text-sm font-bold rounded-md border px-1 py-0.5 focus:outline-none"
+                          style={{ borderColor: meta.accent, color: meta.accent }}
+                        />
+                        <button
+                          onClick={() => onCommitEdit?.()}
+                          className="w-5 h-5 rounded flex items-center justify-center text-white text-xs"
+                          style={{ backgroundColor: meta.accent }}
+                          title="Confirm"
+                        >✓</button>
+                        <button
+                          onClick={() => onCancelEdit?.()}
+                          className="w-5 h-5 rounded flex items-center justify-center text-xs"
+                          style={{ backgroundColor: '#F3F4F6', color: '#6B7280' }}
+                          title="Cancel"
+                        >✕</button>
                       </div>
-                      {grade && (
+                    ) : (
+                      /* ── Normal display ── */
+                      <div
+                        className="group relative cursor-pointer"
+                        onClick={(e) => { if (onStartEdit) { e.stopPropagation(); onStartEdit(config.id, score.value) } }}
+                        title={onStartEdit ? 'Click to correct this value' : undefined}
+                      >
                         <div
-                          className="text-xs font-semibold mt-0.5"
-                          style={{ color: GRADE_STYLES[grade].text }}
+                          className="text-xl font-bold"
+                          style={{ color: grade ? GRADE_STYLES[grade].text : '#111827' }}
                         >
-                          {GRADE_LABELS[grade]}
+                          {formatValue(config, score.value)}
                         </div>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-2xl font-light" style={{ color: '#D1D5DB' }}>—</span>
-                  )}
-                </div>
+                        {grade && (
+                          <div className="text-xs font-semibold mt-0.5" style={{ color: GRADE_STYLES[grade].text }}>
+                            {GRADE_LABELS[grade]}
+                          </div>
+                        )}
+                        {onStartEdit && (
+                          <div
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            style={{ backgroundColor: meta.accent }}
+                          >
+                            <svg viewBox="0 0 12 12" fill="white" className="w-2.5 h-2.5">
+                              <path d="M8.586 1.414a2 2 0 112.828 2.828L4.828 10.828 1 11l.172-3.828L8.586 1.414z"/>
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Chevron button */}
                 <div
@@ -655,10 +706,31 @@ export default function AdAuditor() {
   const [transcribeError, setTranscribeError] = useState('')
   const adImageInputRef = useRef<HTMLInputElement>(null)
 
+  // ── Task 18: Strategist context
+  const [chatContext, setChatContext] = useState('')
+  const [voiceNoteUrl, setVoiceNoteUrl] = useState('')
+  const [voiceNoteTranscribing, setVoiceNoteTranscribing] = useState(false)
+  const [voiceNoteError, setVoiceNoteError] = useState('')
+  const [contextOpen, setContextOpen] = useState(false)
+
+  // ── Task 17: Client benchmarks
+  const [benchmarks, setBenchmarks] = useState({
+    breakevenCpa: '',
+    accountCpa: '',
+    aov: '',
+    ltv: '',
+    subscriberRate: '',
+  })
+  const [benchmarksOpen, setBenchmarksOpen] = useState(false)
+
   // ── Recommendations
   const [recs, setRecs] = useState<Partial<Record<MetricId, RecState>>>({})
   const [recLoading, setRecLoading] = useState<Partial<Record<MetricId, boolean>>>({})
   const [recErrors, setRecErrors] = useState<Partial<Record<MetricId, string>>>({})
+
+  // ── Tile override (inline edit)
+  const [editingTile, setEditingTile] = useState<MetricId | null>(null)
+  const [editingValue, setEditingValue] = useState('')
 
   // ── Scoring ────────────────────────────────────────────────────────────────
 
@@ -679,6 +751,33 @@ export default function AdAuditor() {
   const refreshScores = useCallback((vals: Values, tgts: Targets) => {
     setScores(computeScores(vals, tgts))
   }, [computeScores])
+
+  // ── Tile override ──────────────────────────────────────────────────────────
+
+  const startTileEdit = (id: MetricId, currentValue: number) => {
+    setEditingTile(id)
+    setEditingValue(String(currentValue))
+  }
+
+  const commitTileEdit = () => {
+    if (!editingTile) return
+    const num = parseFloat(editingValue)
+    if (!isNaN(num)) {
+      const newValues = { ...values, [editingTile]: num }
+      setValues(newValues)
+      refreshScores(newValues, targets)
+      // Clear cached rec so it regenerates with corrected data
+      setRecs((p) => { const n = { ...p }; delete n[editingTile!]; return n })
+      setRecErrors((p) => { const n = { ...p }; delete n[editingTile!]; return n })
+    }
+    setEditingTile(null)
+    setEditingValue('')
+  }
+
+  const cancelTileEdit = () => {
+    setEditingTile(null)
+    setEditingValue('')
+  }
 
   // ── Screenshot upload ──────────────────────────────────────────────────────
 
@@ -764,6 +863,32 @@ export default function AdAuditor() {
     }
   }
 
+  // ── Voice note → chatContext ───────────────────────────────────────────────
+
+  const handleVoiceNoteTranscribe = async () => {
+    if (!voiceNoteUrl.trim()) return
+    setVoiceNoteTranscribing(true)
+    setVoiceNoteError('')
+    try {
+      const res = await fetch('/api/transcribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: voiceNoteUrl }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setChatContext((prev) => {
+        const tag = '[Voice note transcription]\n'
+        return prev ? `${prev}\n\n${tag}${data.transcript}` : `${tag}${data.transcript}`
+      })
+      setVoiceNoteUrl('')
+    } catch (err) {
+      setVoiceNoteError(err instanceof Error ? err.message : 'Transcription failed')
+    } finally {
+      setVoiceNoteTranscribing(false)
+    }
+  }
+
   // ── Brand URL scan ─────────────────────────────────────────────────────────
 
   const handleScanUrl = async () => {
@@ -807,11 +932,14 @@ export default function AdAuditor() {
           metricValue: score.value,
           metricGrade: score.grade,
           clientTarget: metricId === 'roas' ? parseFloat(targets.roas) || undefined : metricId === 'cpa' ? parseFloat(targets.cpa) || undefined : undefined,
+          allScores: scores,
           adType,
           transcript: adType === 'video' ? transcript : undefined,
           imageBase64,
           imageMimeType,
           brandContext: brandContext || undefined,
+          chatContext: chatContext || undefined,
+          clientBenchmarks: Object.values(benchmarks).some(Boolean) ? benchmarks : undefined,
         }),
       })
       const data = await res.json()
@@ -1065,7 +1193,104 @@ export default function AdAuditor() {
             </div>
             <input ref={screenshotInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScreenshot(f) }} />
 
-            <div className="text-center mt-6">
+            {/* ── Pre-audit context ── */}
+            <div className="mt-6 rounded-2xl border bg-white overflow-hidden" style={{ borderColor: '#E8DCC4' }}>
+              <button
+                onClick={() => setContextOpen((p) => !p)}
+                className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-medium transition-colors hover:bg-amber-50/50"
+                style={{ color: '#4A5240' }}
+              >
+                <span className="flex items-center gap-2">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 opacity-60"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" /></svg>
+                  Add context before auditing
+                  {(brandContext || chatContext || Object.values(benchmarks).some(Boolean)) && (
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: '#DCFCE7', color: '#15803D' }}>added</span>
+                  )}
+                </span>
+                <svg viewBox="0 0 20 20" fill="currentColor" className={`w-4 h-4 transition-transform ${contextOpen ? 'rotate-180' : ''}`}><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+              </button>
+
+              {contextOpen && (
+                <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: '#F3F4F6' }}>
+                  {/* Brand URL */}
+                  <div className="pt-4">
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Brand / product URL</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="url" placeholder="https://yourbrand.com/product"
+                        value={brandUrl} onChange={(e) => setBrandUrl(e.target.value)}
+                        className="flex-1 text-sm px-3 py-2 rounded-lg border focus:outline-none"
+                        style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
+                      />
+                      <button onClick={handleScanUrl} disabled={!brandUrl.trim() || urlLoading} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-40" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
+                        {urlLoading ? '…' : brandContext ? '✓ Scanned' : 'Scan'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Client benchmarks */}
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Client benchmarks (optional)</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                      {[
+                        { key: 'breakevenCpa' as const, label: 'Breakeven CPA', prefix: '$' },
+                        { key: 'accountCpa' as const, label: 'Account CPA', prefix: '$' },
+                        { key: 'aov' as const, label: 'AOV', prefix: '$' },
+                        { key: 'ltv' as const, label: 'LTV', prefix: '$' },
+                        { key: 'subscriberRate' as const, label: 'Subscriber Rate', suffix: '%' },
+                      ].map(({ key, label, prefix, suffix }) => (
+                        <div key={key}>
+                          <div className="text-xs mb-1" style={{ color: '#6B7280' }}>{label}</div>
+                          <div className="relative">
+                            {prefix && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#9CA3AF' }}>{prefix}</span>}
+                            <input
+                              type="number" step="any" placeholder="0"
+                              value={benchmarks[key]}
+                              onChange={(e) => setBenchmarks((p) => ({ ...p, [key]: e.target.value }))}
+                              className={`w-full text-sm rounded-lg border px-3 py-2 focus:outline-none ${prefix ? 'pl-6' : ''}`}
+                              style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
+                            />
+                            {suffix && <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs pointer-events-none" style={{ color: '#9CA3AF' }}>{suffix}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Strategist notes */}
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Strategist notes</div>
+                    <textarea
+                      placeholder="Add any context about this ad — what you were testing, who the audience is, how it fits the funnel, anything relevant…"
+                      value={chatContext}
+                      onChange={(e) => setChatContext(e.target.value)}
+                      rows={3}
+                      className="w-full text-sm px-3 py-2.5 rounded-lg border focus:outline-none resize-none"
+                      style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA', color: '#374151' }}
+                    />
+                  </div>
+
+                  {/* Voice note */}
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Voice note (URL → transcribe to notes)</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="url" placeholder="Paste video/audio URL…"
+                        value={voiceNoteUrl} onChange={(e) => setVoiceNoteUrl(e.target.value)}
+                        className="flex-1 text-sm px-3 py-2 rounded-lg border focus:outline-none"
+                        style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
+                      />
+                      <button onClick={handleVoiceNoteTranscribe} disabled={!voiceNoteUrl.trim() || voiceNoteTranscribing} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-40 flex items-center gap-1.5" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
+                        {voiceNoteTranscribing ? <><Spinner /><span>…</span></> : 'Transcribe'}
+                      </button>
+                    </div>
+                    {voiceNoteError && <p className="text-xs text-red-500 mt-1">{voiceNoteError}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="text-center mt-4">
               <button onClick={() => setManualMode(true)} className="text-sm underline underline-offset-2" style={{ color: '#9DAF9D' }}>
                 Enter metrics manually instead
               </button>
@@ -1157,47 +1382,133 @@ export default function AdAuditor() {
         {/* ════════════════════════════════════════════════════ */}
         {view === 'audit' && auditStep === 'dashboard' && (
           <div>
-            {/* Screenshot thumb */}
-            {screenshotPreview && (
-              <div className="flex items-center gap-3 mb-8 p-3 rounded-2xl border bg-white" style={{ borderColor: '#E8DCC4' }}>
-                <img src={screenshotPreview} alt="" className="h-10 rounded-lg object-contain opacity-80" />
+            {/* ── Summary + Audit Context panel ── */}
+            <div className="mb-8 rounded-2xl border bg-white overflow-hidden" style={{ borderColor: '#E8DCC4' }}>
+              {/* Summary row */}
+              <div className="flex items-center gap-3 p-3">
+                {screenshotPreview && (
+                  <img src={screenshotPreview} alt="" className="h-10 rounded-lg object-contain opacity-80 shrink-0" />
+                )}
                 <div>
                   <div className="text-sm font-medium" style={{ color: '#2D3428' }}>
-                    {scores.length} metric{scores.length !== 1 ? 's' : ''} read
+                    {scores.length} metric{scores.length !== 1 ? 's' : ''} scored
                     {leaks.length > 0 && <span className="ml-2 text-amber-600">· {leaks.length} leak{leaks.length !== 1 ? 's' : ''}</span>}
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: '#9DAF9D' }}>Click any tile to diagnose</div>
+                  <div className="text-xs mt-0.5" style={{ color: '#9DAF9D' }}>Click any tile to diagnose · hover value to correct</div>
                 </div>
-                {/* Brand URL in audit dashboard */}
-                <div className="ml-auto flex gap-2">
-                  <input
-                    type="url" placeholder="Brand URL (optional)"
-                    value={brandUrl} onChange={(e) => setBrandUrl(e.target.value)}
-                    className="text-xs px-3 py-1.5 rounded-lg border focus:outline-none w-48"
-                    style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
-                  />
-                  <button onClick={handleScanUrl} disabled={!brandUrl.trim() || urlLoading} className="text-xs px-3 py-1.5 rounded-lg border disabled:opacity-40" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
-                    {urlLoading ? '…' : brandContext ? '✓ Scanned' : 'Scan'}
-                  </button>
-                </div>
+                <button
+                  onClick={() => setContextOpen((p) => !p)}
+                  className="ml-auto flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors"
+                  style={{ borderColor: '#C0D4C0', color: contextOpen ? '#5A8E5A' : '#7A8870' }}
+                >
+                  {(brandContext || chatContext || Object.values(benchmarks).some(Boolean)) && (
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: '#5A8E5A' }} />
+                  )}
+                  Audit context
+                  <svg viewBox="0 0 20 20" fill="currentColor" className={`w-3 h-3 transition-transform ${contextOpen ? 'rotate-180' : ''}`}><path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                </button>
               </div>
-            )}
+
+              {/* Expandable context panel */}
+              {contextOpen && (
+                <div className="px-5 pb-5 space-y-4 border-t" style={{ borderColor: '#F3F4F6' }}>
+                  {/* Brand URL */}
+                  <div className="pt-4">
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Brand / product URL</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="url" placeholder="https://yourbrand.com/product"
+                        value={brandUrl} onChange={(e) => setBrandUrl(e.target.value)}
+                        className="flex-1 text-sm px-3 py-2 rounded-lg border focus:outline-none"
+                        style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
+                      />
+                      <button onClick={handleScanUrl} disabled={!brandUrl.trim() || urlLoading} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-40" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
+                        {urlLoading ? '…' : brandContext ? '✓ Scanned' : 'Scan'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Client benchmarks */}
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Client benchmarks</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                      {[
+                        { key: 'breakevenCpa' as const, label: 'Breakeven CPA', prefix: '$' },
+                        { key: 'accountCpa' as const, label: 'Account CPA', prefix: '$' },
+                        { key: 'aov' as const, label: 'AOV', prefix: '$' },
+                        { key: 'ltv' as const, label: 'LTV', prefix: '$' },
+                        { key: 'subscriberRate' as const, label: 'Subscriber Rate', suffix: '%' },
+                      ].map(({ key, label, prefix, suffix }) => (
+                        <div key={key}>
+                          <div className="text-xs mb-1" style={{ color: '#6B7280' }}>{label}</div>
+                          <div className="relative">
+                            {prefix && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#9CA3AF' }}>{prefix}</span>}
+                            <input
+                              type="number" step="any" placeholder="—"
+                              value={benchmarks[key]}
+                              onChange={(e) => setBenchmarks((p) => ({ ...p, [key]: e.target.value }))}
+                              className={`w-full text-sm rounded-lg border px-3 py-2 focus:outline-none ${prefix ? 'pl-6' : ''}`}
+                              style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
+                            />
+                            {suffix && <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs pointer-events-none" style={{ color: '#9CA3AF' }}>{suffix}</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Strategist notes */}
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Strategist notes</div>
+                    <textarea
+                      placeholder="Any context about this ad — what you were testing, audience, funnel stage, creative hypothesis…"
+                      value={chatContext}
+                      onChange={(e) => setChatContext(e.target.value)}
+                      rows={3}
+                      className="w-full text-sm px-3 py-2.5 rounded-lg border focus:outline-none resize-none"
+                      style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA', color: '#374151' }}
+                    />
+                  </div>
+
+                  {/* Voice note */}
+                  <div>
+                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Voice note → transcribe to notes</div>
+                    <div className="flex gap-2">
+                      <input
+                        type="url" placeholder="Paste video or audio URL…"
+                        value={voiceNoteUrl} onChange={(e) => setVoiceNoteUrl(e.target.value)}
+                        className="flex-1 text-sm px-3 py-2 rounded-lg border focus:outline-none"
+                        style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
+                      />
+                      <button onClick={handleVoiceNoteTranscribe} disabled={!voiceNoteUrl.trim() || voiceNoteTranscribing} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-40 flex items-center gap-1.5" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
+                        {voiceNoteTranscribing ? <><Spinner /><span>…</span></> : 'Transcribe'}
+                      </button>
+                    </div>
+                    {voiceNoteError && <p className="text-xs text-red-500 mt-1">{voiceNoteError}</p>}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="space-y-6">
               {/* KEY */}
-              <CategoryPill category="key" metrics={KEY_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} />
+              <CategoryPill category="key" metrics={KEY_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+                editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'key' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* SOFT */}
-              <CategoryPill category="soft" metrics={SOFT_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} />
+              <CategoryPill category="soft" metrics={SOFT_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+                editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'soft' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* HARD */}
-              <CategoryPill category="hard" metrics={HARD_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} />
+              <CategoryPill category="hard" metrics={HARD_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+                editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'hard' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* FUNNEL RATES */}
-              <CategoryPill category="funnel" metrics={FUNNEL_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} />
+              <CategoryPill category="funnel" metrics={FUNNEL_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+                editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'funnel' && detailProps && <MetricDetail {...detailProps} />}
             </div>
           </div>
