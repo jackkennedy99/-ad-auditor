@@ -689,6 +689,8 @@ export default function AdAuditor() {
   const [extracting, setExtracting] = useState(false)
   const [extractError, setExtractError] = useState('')
   const [auditStep, setAuditStep] = useState<'upload' | 'dashboard'>('upload')
+  const [auditReady, setAuditReady] = useState(false) // extraction done, waiting for Run Audit click
+  const [extractedCount, setExtractedCount] = useState(0)
   const [manualMode, setManualMode] = useState(false)
   const screenshotInputRef = useRef<HTMLInputElement>(null)
 
@@ -795,6 +797,7 @@ export default function AdAuditor() {
     setScreenshotPreview(URL.createObjectURL(file))
     setExtracting(true)
     setPendingExtraction(null)
+    setAuditReady(false)
 
     const reader = new FileReader()
     reader.onload = async (e) => {
@@ -818,9 +821,8 @@ export default function AdAuditor() {
           setPendingExtraction({ values: extracted, detectedCurrency: detected })
         } else {
           setValues(extracted)
-          setScores(computeScores(extracted, targets))
-          setAuditStep('dashboard')
-          setSelectedMetric(null)
+          setExtractedCount(Object.keys(extracted).length)
+          setAuditReady(true)
           setRecs({})
         }
       } catch (err) {
@@ -1101,7 +1103,7 @@ export default function AdAuditor() {
                       Re-audit
                     </button>
                     <button
-                      onClick={() => { setAuditStep('upload'); setManualMode(false); setScreenshotFile(null); setScreenshotPreview(null); setValues({}); setManualInputs({}); setScores([]); setSelectedMetric(null); setRecs({}); setPendingExtraction(null) }}
+                      onClick={() => { setAuditStep('upload'); setManualMode(false); setScreenshotFile(null); setScreenshotPreview(null); setValues({}); setManualInputs({}); setScores([]); setSelectedMetric(null); setRecs({}); setPendingExtraction(null); setAuditReady(false) }}
                       className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
                       style={{ borderColor: '#C0D4C0', color: '#4A5240' }}
                     >
@@ -1178,8 +1180,14 @@ export default function AdAuditor() {
               onClick={() => !extracting && screenshotInputRef.current?.click()}
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f?.type.startsWith('image/')) handleScreenshot(f) }}
-              className="rounded-3xl border-2 border-dashed cursor-pointer transition-all"
-              style={{ borderColor: extracting ? '#7AA87A' : '#C0D4C0', backgroundColor: extracting ? '#F0F5F0' : '#FFFFFF', minHeight: '300px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+              className="rounded-3xl border-2 cursor-pointer transition-all"
+              style={{
+                borderStyle: auditReady ? 'solid' : 'dashed',
+                borderColor: extracting ? '#7AA87A' : auditReady ? '#5A8E5A' : '#C0D4C0',
+                backgroundColor: extracting ? '#F0F5F0' : auditReady ? '#F0F5F0' : '#FFFFFF',
+                minHeight: auditReady ? 'auto' : '300px',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
             >
               {extracting ? (
                 <div className="flex flex-col items-center gap-4 p-10">
@@ -1194,6 +1202,17 @@ export default function AdAuditor() {
                   {screenshotPreview && <img src={screenshotPreview} alt="" className="max-h-28 rounded-xl opacity-40 object-contain" />}
                   <p className="text-sm font-medium text-red-600">{extractError}</p>
                   <p className="text-xs" style={{ color: '#9DAF9D' }}>Try a clearer crop, or enter manually below.</p>
+                </div>
+              ) : auditReady ? (
+                <div className="flex items-center gap-4 px-5 py-4 w-full">
+                  {screenshotPreview && <img src={screenshotPreview} alt="" className="h-14 rounded-lg object-contain shrink-0" style={{ border: '1px solid #C0D4C0' }} />}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0" style={{ color: '#5A8E5A' }}><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
+                      <span className="text-sm font-semibold" style={{ color: '#2D3428' }}>{extractedCount} metrics read from screenshot</span>
+                    </div>
+                    <p className="text-xs" style={{ color: '#7A8870' }}>Add context below, then hit Run Audit — or click here to swap screenshot</p>
+                  </div>
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-4 p-10 text-center">
@@ -1230,9 +1249,8 @@ export default function AdAuditor() {
                         onClick={() => {
                           setCurrency(pendingExtraction.detectedCurrency)
                           setValues(pendingExtraction.values)
-                          setScores(computeScores(pendingExtraction.values, targets))
-                          setAuditStep('dashboard')
-                          setSelectedMetric(null)
+                          setExtractedCount(Object.keys(pendingExtraction.values).length)
+                          setAuditReady(true)
                           setRecs({})
                           setPendingExtraction(null)
                         }}
@@ -1351,6 +1369,22 @@ export default function AdAuditor() {
                 </div>
               )}
             </div>
+
+            {/* ── Run Audit CTA ── */}
+            {auditReady && (
+              <div className="mt-6">
+                <button
+                  onClick={() => { setScores(computeScores(values, targets)); setAuditStep('dashboard'); setSelectedMetric(null) }}
+                  className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold text-white transition-all hover:opacity-90 active:scale-[0.99]"
+                  style={{ backgroundColor: '#5A8E5A', boxShadow: '0 4px 20px rgba(90,142,90,0.35)' }}
+                >
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                  Run Audit
+                </button>
+              </div>
+            )}
 
             <div className="text-center mt-4">
               <button onClick={() => setManualMode(true)} className="text-sm underline underline-offset-2" style={{ color: '#9DAF9D' }}>
