@@ -642,7 +642,7 @@ function CategoryPill({
                         )}
                         {onStartEdit && (
                           <div
-                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center opacity-50 group-hover:opacity-100 transition-opacity"
                             style={{ backgroundColor: meta.accent }}
                           >
                             <svg viewBox="0 0 12 12" fill="white" className="w-2.5 h-2.5">
@@ -1089,13 +1089,25 @@ export default function AdAuditor() {
                   ← Guide
                 </button>
                 {auditStep === 'dashboard' && (
-                  <button
-                    onClick={() => { setAuditStep('upload'); setManualMode(false); setScreenshotFile(null); setScreenshotPreview(null); setValues({}); setManualInputs({}); setScores([]); setSelectedMetric(null); setRecs({}); setPendingExtraction(null) }}
-                    className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
-                    style={{ borderColor: '#C0D4C0', color: '#4A5240' }}
-                  >
-                    New audit
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setScores(computeScores(values, targets)); setRecs({}); setRecErrors({}); setRecLoading({}); setSelectedMetric(null) }}
+                      className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors"
+                      style={{ borderColor: '#5A8E5A', color: '#5A8E5A', backgroundColor: '#F0F5F0' }}
+                    >
+                      <svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                        <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                      </svg>
+                      Re-audit
+                    </button>
+                    <button
+                      onClick={() => { setAuditStep('upload'); setManualMode(false); setScreenshotFile(null); setScreenshotPreview(null); setValues({}); setManualInputs({}); setScores([]); setSelectedMetric(null); setRecs({}); setPendingExtraction(null) }}
+                      className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
+                      style={{ borderColor: '#C0D4C0', color: '#4A5240' }}
+                    >
+                      New audit
+                    </button>
+                  </>
                 )}
               </div>
             )}
