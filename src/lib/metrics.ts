@@ -387,11 +387,11 @@ export const GRADE_STYLES: Record<Grade, { bg: string; text: string; bar: string
   great: { bg: '#ECFDF5', text: '#047857', bar: '#34D399', border: '#A7F3D0' },
 }
 
-export function formatValue(config: MetricConfig, value: number): string {
+export function formatValue(config: MetricConfig, value: number, currency: string = '$'): string {
   if (config.unit === '$') {
     return value >= 1000
-      ? `$${(value / 1000).toFixed(1)}k`
-      : `$${value % 1 === 0 ? value : value.toFixed(2)}`
+      ? `${currency}${(value / 1000).toFixed(1)}k`
+      : `${currency}${value % 1 === 0 ? value : value.toFixed(2)}`
   }
   if (config.unit === 'x') return `${value}x`
   if (config.unit === '%') {

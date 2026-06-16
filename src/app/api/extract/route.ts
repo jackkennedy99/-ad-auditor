@@ -40,15 +40,18 @@ CALCULATED (only if NOT already shown as a column — calculate from raw values 
 16. lpQuality — Landing Page Views ÷ Link Clicks × 100. Only calculate if not shown directly.
 17. atcPurchase — Purchases ÷ Add to Carts × 100. Only calculate if not shown directly.
 
+CURRENCY DETECTION:
+Look at cost-based metrics (Amount Spent, CPM, CPA, Cost per Link Click, Cost per Landing Page View, Conversion Value) and identify the currency symbol shown. Add "detectedCurrency" to your JSON: return "$" if dollar signs are used, "£" if pound signs are used, or null if unclear.
+
 Rules:
-- Strip ALL currency symbols ($), percentage signs (%), and multipliers (x) — return only raw numeric values
+- Strip ALL currency symbols ($, £), percentage signs (%), and multipliers (x) — return only raw numeric values
 - Do NOT scale or divide values — if the screenshot shows 14.53%, return 14.53
 - If a metric is not visible or cannot be determined, return null
 - Do not guess or approximate — only return values clearly visible or directly calculable
 - Return ONLY a valid JSON object with no other text, explanation, or markdown
 
 JSON format (no other text):
-{"amountSpent":number|null,"cpm":number|null,"conversionValue":number|null,"roas":number|null,"cpa":number|null,"hookRate":number|null,"holdRate":number|null,"ctr":number|null,"linkClicks":number|null,"cplc":number|null,"lpv":number|null,"cplpv":number|null,"lpQuality":number|null,"atc":number|null,"initiateCheckout":number|null,"purchases":number|null,"atcPurchase":number|null}`
+{"amountSpent":number|null,"cpm":number|null,"conversionValue":number|null,"roas":number|null,"cpa":number|null,"hookRate":number|null,"holdRate":number|null,"ctr":number|null,"linkClicks":number|null,"cplc":number|null,"lpv":number|null,"cplpv":number|null,"lpQuality":number|null,"atc":number|null,"initiateCheckout":number|null,"purchases":number|null,"atcPurchase":number|null,"detectedCurrency":"$"|"£"|null}`
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -92,9 +95,10 @@ export async function POST(req: NextRequest) {
     const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
     const jsonStr = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
 
-    let values: Record<string, number | null>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let parsed: any
     try {
-      values = JSON.parse(jsonStr)
+      parsed = JSON.parse(jsonStr)
     } catch {
       return NextResponse.json(
         { error: 'Could not parse metrics from screenshot. Try a clearer screenshot or enter manually.' },
@@ -102,7 +106,8 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    return NextResponse.json({ values })
+    const { detectedCurrency, ...values } = parsed
+    return NextResponse.json({ values, detectedCurrency: detectedCurrency || null })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })

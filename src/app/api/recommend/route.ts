@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     brandContext,
     chatContext,
     clientBenchmarks,
+    currency,
   }: {
     metricId: MetricId
     metricValue: number
@@ -42,7 +43,10 @@ export async function POST(req: NextRequest) {
       ltv?: string
       subscriberRate?: string
     }
+    currency?: string
   } = await req.json()
+
+  const cur = currency || '$'
 
   const config = METRICS.find((m) => m.id === metricId)
   if (!config) {
@@ -59,30 +63,30 @@ export async function POST(req: NextRequest) {
         const c = METRICS.find((m) => m.id === s.id)
         if (!c) return null
         const gradeLabel = s.grade ? GRADE_LABELS[s.grade] : 'n/a'
-        return `  ${c.label}: ${formatValue(c, s.value)} (${gradeLabel})`
+        return `  ${c.label}: ${formatValue(c, s.value, cur)} (${gradeLabel})`
       })
       .filter(Boolean)
     fullPictureBlock = `\nFULL AD PERFORMANCE SNAPSHOT:\n${lines.join('\n')}\n`
   }
 
   const valueStr =
-    config.unit === '$' ? `$${metricValue}`
+    config.unit === '$' ? `${cur}${metricValue}`
     : config.unit === 'x' ? `${metricValue}x`
     : config.unit === '%' ? `${metricValue}%`
     : `${metricValue}`
 
   const targetStr = clientTarget
-    ? ` (client target: ${config.unit === '$' ? '$' : ''}${clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
+    ? ` (client target: ${config.unit === '$' ? cur : ''}${clientTarget}${config.unit === '%' ? '%' : config.unit === 'x' ? 'x' : ''})`
     : ''
 
   // Build client benchmarks context block
   let benchmarksBlock = ''
   if (clientBenchmarks && Object.values(clientBenchmarks).some(Boolean)) {
     const lines = [
-      clientBenchmarks.breakevenCpa ? `  Breakeven CPA: $${clientBenchmarks.breakevenCpa}` : null,
-      clientBenchmarks.accountCpa ? `  Account-wide CPA: $${clientBenchmarks.accountCpa}` : null,
-      clientBenchmarks.aov ? `  Average Order Value (AOV): $${clientBenchmarks.aov}` : null,
-      clientBenchmarks.ltv ? `  Lifetime Value (LTV): $${clientBenchmarks.ltv}` : null,
+      clientBenchmarks.breakevenCpa ? `  Breakeven CPA: ${cur}${clientBenchmarks.breakevenCpa}` : null,
+      clientBenchmarks.accountCpa ? `  Account-wide CPA: ${cur}${clientBenchmarks.accountCpa}` : null,
+      clientBenchmarks.aov ? `  Average Order Value (AOV): ${cur}${clientBenchmarks.aov}` : null,
+      clientBenchmarks.ltv ? `  Lifetime Value (LTV): ${cur}${clientBenchmarks.ltv}` : null,
       clientBenchmarks.subscriberRate ? `  Subscriber Conversion Rate: ${clientBenchmarks.subscriberRate}%` : null,
     ].filter(Boolean)
     benchmarksBlock = `\nCLIENT BENCHMARKS (use to contextualise performance — e.g. high LTV means a higher CPA may still be profitable):\n${lines.join('\n')}\n`

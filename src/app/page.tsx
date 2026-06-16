@@ -237,6 +237,7 @@ function MetricDetail({
   onToggleCheck,
   onReanalyse,
   adImageInputRef,
+  currency,
 }: {
   metricId: MetricId
   score?: ScoredMetric
@@ -262,6 +263,7 @@ function MetricDetail({
   onToggleCheck: (i: number) => void
   onReanalyse: () => void
   adImageInputRef: React.RefObject<HTMLInputElement>
+  currency: string
 }) {
   const config = METRICS.find((m) => m.id === metricId)!
   const hasAdContent = adType === 'video' ? transcript.trim().length > 0 : adImageFile !== null
@@ -281,7 +283,7 @@ function MetricDetail({
               className="inline-block mt-1 text-xs font-semibold px-2 py-0.5 rounded-full"
               style={{ backgroundColor: GRADE_STYLES[grade].bg, color: GRADE_STYLES[grade].text }}
             >
-              {GRADE_LABELS[grade]} · {formatValue(config, score.value)}
+              {GRADE_LABELS[grade]} · {formatValue(config, score.value, currency)}
             </span>
           )}
         </div>
@@ -511,6 +513,7 @@ function CategoryPill({
   onEditValueChange,
   onCommitEdit,
   onCancelEdit,
+  currency = '$',
 }: {
   category: Category
   metrics: MetricConfig[]
@@ -523,6 +526,7 @@ function CategoryPill({
   onEditValueChange?: (v: string) => void
   onCommitEdit?: () => void
   onCancelEdit?: () => void
+  currency?: string
 }) {
   const meta = CATEGORY_META[category]
 
@@ -629,7 +633,7 @@ function CategoryPill({
                           className="text-xl font-bold"
                           style={{ color: grade ? GRADE_STYLES[grade].text : '#111827' }}
                         >
-                          {formatValue(config, score.value)}
+                          {formatValue(config, score.value, currency)}
                         </div>
                         {grade && (
                           <div className="text-xs font-semibold mt-0.5" style={{ color: GRADE_STYLES[grade].text }}>
@@ -677,6 +681,7 @@ export default function AdAuditor() {
   // ── View state
   const [view, setView] = useState<'guide' | 'audit'>('guide')
   const [selectedMetric, setSelectedMetric] = useState<MetricId | null>(null)
+  const [currency, setCurrency] = useState<'$' | '£'>('$')
 
   // ── Audit: screenshot
   const [screenshotFile, setScreenshotFile] = useState<File | null>(null)
@@ -708,10 +713,10 @@ export default function AdAuditor() {
 
   // ── Task 18: Strategist context
   const [chatContext, setChatContext] = useState('')
-  const [voiceNoteUrl, setVoiceNoteUrl] = useState('')
-  const [voiceNoteTranscribing, setVoiceNoteTranscribing] = useState(false)
-  const [voiceNoteError, setVoiceNoteError] = useState('')
+  const [isRecording, setIsRecording] = useState(false)
   const [contextOpen, setContextOpen] = useState(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null)
 
   // ── Task 17: Client benchmarks
   const [benchmarks, setBenchmarks] = useState({
@@ -731,6 +736,9 @@ export default function AdAuditor() {
   // ── Tile override (inline edit)
   const [editingTile, setEditingTile] = useState<MetricId | null>(null)
   const [editingValue, setEditingValue] = useState('')
+
+  // ── Currency mismatch safeguard
+  const [pendingExtraction, setPendingExtraction] = useState<{ values: Values; detectedCurrency: '$' | '£' } | null>(null)
 
   // ── Scoring ────────────────────────────────────────────────────────────────
 
@@ -786,6 +794,7 @@ export default function AdAuditor() {
     setExtractError('')
     setScreenshotPreview(URL.createObjectURL(file))
     setExtracting(true)
+    setPendingExtraction(null)
 
     const reader = new FileReader()
     reader.onload = async (e) => {
@@ -803,11 +812,17 @@ export default function AdAuditor() {
         for (const [k, v] of Object.entries(data.values)) {
           if (v !== null && v !== undefined && !isNaN(Number(v))) extracted[k as MetricId] = Number(v)
         }
-        setValues(extracted)
-        setScores(computeScores(extracted, targets))
-        setAuditStep('dashboard')
-        setSelectedMetric(null)
-        setRecs({})
+        // Currency mismatch check
+        const detected = data.detectedCurrency as '$' | '£' | null
+        if (detected && detected !== currency) {
+          setPendingExtraction({ values: extracted, detectedCurrency: detected })
+        } else {
+          setValues(extracted)
+          setScores(computeScores(extracted, targets))
+          setAuditStep('dashboard')
+          setSelectedMetric(null)
+          setRecs({})
+        }
       } catch (err) {
         setExtractError(err instanceof Error ? err.message : 'Failed to read screenshot')
       } finally {
@@ -815,7 +830,7 @@ export default function AdAuditor() {
       }
     }
     reader.readAsDataURL(file)
-  }, [targets, computeScores])
+  }, [targets, computeScores, currency])
 
   // ── Manual entry ───────────────────────────────────────────────────────────
 
@@ -863,30 +878,39 @@ export default function AdAuditor() {
     }
   }
 
-  // ── Voice note → chatContext ───────────────────────────────────────────────
+  // ── Voice note → chatContext (browser recording) ──────────────────────────
 
-  const handleVoiceNoteTranscribe = async () => {
-    if (!voiceNoteUrl.trim()) return
-    setVoiceNoteTranscribing(true)
-    setVoiceNoteError('')
-    try {
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: voiceNoteUrl }),
-      })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setChatContext((prev) => {
-        const tag = '[Voice note transcription]\n'
-        return prev ? `${prev}\n\n${tag}${data.transcript}` : `${tag}${data.transcript}`
-      })
-      setVoiceNoteUrl('')
-    } catch (err) {
-      setVoiceNoteError(err instanceof Error ? err.message : 'Transcription failed')
-    } finally {
-      setVoiceNoteTranscribing(false)
+  const toggleRecording = () => {
+    if (isRecording) {
+      recognitionRef.current?.stop()
+      return
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SR) {
+      alert('Voice recording requires Chrome. Please use Chrome or type your notes instead.')
+      return
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recognition = new SR()
+    recognition.continuous = true
+    recognition.interimResults = false
+    recognition.lang = 'en-US'
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (e: any) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const text = Array.from(e.results as any[])
+        .slice(e.resultIndex)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .map((r: any) => r[0].transcript)
+        .join('')
+      setChatContext((prev) => prev ? `${prev} ${text}` : text)
+    }
+    recognition.onend = () => { setIsRecording(false); recognitionRef.current = null }
+    recognition.onerror = () => { setIsRecording(false); recognitionRef.current = null }
+    recognition.start()
+    recognitionRef.current = recognition
+    setIsRecording(true)
   }
 
   // ── Brand URL scan ─────────────────────────────────────────────────────────
@@ -940,6 +964,7 @@ export default function AdAuditor() {
           brandContext: brandContext || undefined,
           chatContext: chatContext || undefined,
           clientBenchmarks: Object.values(benchmarks).some(Boolean) ? benchmarks : undefined,
+          currency,
         }),
       })
       const data = await res.json()
@@ -995,6 +1020,7 @@ export default function AdAuditor() {
         onToggleCheck: (i: number) => toggleCheck(selectedMetric, i),
         onReanalyse: () => setRecs((p) => { const n = { ...p }; delete n[selectedMetric]; return n }),
         adImageInputRef,
+        currency,
       }
     : null
 
@@ -1022,6 +1048,20 @@ export default function AdAuditor() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Currency toggle — always visible */}
+            <div className="flex rounded-lg overflow-hidden border text-xs font-semibold" style={{ borderColor: '#C0D4C0' }}>
+              {(['$', '£'] as const).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCurrency(c)}
+                  className="px-3 py-1.5 transition-colors"
+                  style={{ backgroundColor: currency === c ? '#5A8E5A' : 'transparent', color: currency === c ? '#fff' : '#7A8870' }}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+
             {view === 'guide' && (
               <button
                 onClick={() => { setView('audit'); setAuditStep('upload'); setSelectedMetric(null) }}
@@ -1050,7 +1090,7 @@ export default function AdAuditor() {
                 </button>
                 {auditStep === 'dashboard' && (
                   <button
-                    onClick={() => { setAuditStep('upload'); setManualMode(false); setScreenshotFile(null); setScreenshotPreview(null); setValues({}); setManualInputs({}); setScores([]); setSelectedMetric(null); setRecs({}) }}
+                    onClick={() => { setAuditStep('upload'); setManualMode(false); setScreenshotFile(null); setScreenshotPreview(null); setValues({}); setManualInputs({}); setScores([]); setSelectedMetric(null); setRecs({}); setPendingExtraction(null) }}
                     className="text-sm px-3 py-1.5 rounded-lg border transition-colors"
                     style={{ borderColor: '#C0D4C0', color: '#4A5240' }}
                   >
@@ -1079,52 +1119,20 @@ export default function AdAuditor() {
 
             <div className="space-y-6">
               {/* KEY */}
-              <CategoryPill
-                category="key"
-                metrics={KEY_METRICS}
-                selected={selectedMetric}
-                onSelect={(id) => setSelectedMetric(id)}
-                scores={scores}
-              />
-              {selectedMetric && selectedCategory === 'key' && detailProps && (
-                <MetricDetail {...detailProps} />
-              )}
+              <CategoryPill category="key" metrics={KEY_METRICS} selected={selectedMetric} onSelect={(id) => setSelectedMetric(id)} scores={scores} currency={currency} />
+              {selectedMetric && selectedCategory === 'key' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* SOFT */}
-              <CategoryPill
-                category="soft"
-                metrics={SOFT_METRICS}
-                selected={selectedMetric}
-                onSelect={(id) => setSelectedMetric(id)}
-                scores={scores}
-              />
-              {selectedMetric && selectedCategory === 'soft' && detailProps && (
-                <MetricDetail {...detailProps} />
-              )}
+              <CategoryPill category="soft" metrics={SOFT_METRICS} selected={selectedMetric} onSelect={(id) => setSelectedMetric(id)} scores={scores} currency={currency} />
+              {selectedMetric && selectedCategory === 'soft' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* HARD */}
-              <CategoryPill
-                category="hard"
-                metrics={HARD_METRICS}
-                selected={selectedMetric}
-                onSelect={(id) => setSelectedMetric(id)}
-                scores={scores}
-              />
-              {selectedMetric && selectedCategory === 'hard' && detailProps && (
-                <MetricDetail {...detailProps} />
-              )}
+              <CategoryPill category="hard" metrics={HARD_METRICS} selected={selectedMetric} onSelect={(id) => setSelectedMetric(id)} scores={scores} currency={currency} />
+              {selectedMetric && selectedCategory === 'hard' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* FUNNEL RATES */}
-              <CategoryPill
-                category="funnel"
-                metrics={FUNNEL_METRICS}
-                selected={selectedMetric}
-                onSelect={(id) => setSelectedMetric(id)}
-                scores={scores}
-              />
-              {selectedMetric && selectedCategory === 'funnel' && detailProps && (
-                <MetricDetail {...detailProps} />
-              )}
+              <CategoryPill category="funnel" metrics={FUNNEL_METRICS} selected={selectedMetric} onSelect={(id) => setSelectedMetric(id)} scores={scores} currency={currency} />
+              {selectedMetric && selectedCategory === 'funnel' && detailProps && <MetricDetail {...detailProps} />}
             </div>
 
             {/* CTA */}
@@ -1193,6 +1201,47 @@ export default function AdAuditor() {
             </div>
             <input ref={screenshotInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleScreenshot(f) }} />
 
+            {/* ── Currency mismatch warning ── */}
+            {pendingExtraction && (
+              <div className="mt-4 rounded-2xl border-2 p-5" style={{ borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' }}>
+                <div className="flex items-start gap-3">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5 shrink-0 mt-0.5" style={{ color: '#EF4444' }}>
+                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm mb-1" style={{ color: '#991B1B' }}>Currency mismatch</p>
+                    <p className="text-sm mb-4" style={{ color: '#7F1D1D' }}>
+                      Your screenshot shows <strong>{pendingExtraction.detectedCurrency}</strong> values but the toggle is set to <strong>{currency}</strong>. Fix this before running the audit.
+                    </p>
+                    <div className="flex flex-wrap gap-3">
+                      <button
+                        onClick={() => {
+                          setCurrency(pendingExtraction.detectedCurrency)
+                          setValues(pendingExtraction.values)
+                          setScores(computeScores(pendingExtraction.values, targets))
+                          setAuditStep('dashboard')
+                          setSelectedMetric(null)
+                          setRecs({})
+                          setPendingExtraction(null)
+                        }}
+                        className="px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all hover:opacity-90"
+                        style={{ backgroundColor: '#5A8E5A' }}
+                      >
+                        Switch to {pendingExtraction.detectedCurrency} &amp; continue
+                      </button>
+                      <button
+                        onClick={() => { setPendingExtraction(null); setScreenshotFile(null); setScreenshotPreview(null) }}
+                        className="px-4 py-2 rounded-xl text-sm font-medium border transition-colors"
+                        style={{ borderColor: '#C0D4C0', color: '#4A5240', backgroundColor: 'white' }}
+                      >
+                        Re-upload screenshot
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ── Pre-audit context ── */}
             <div className="mt-6 rounded-2xl border bg-white overflow-hidden" style={{ borderColor: '#E8DCC4' }}>
               <button
@@ -1233,10 +1282,10 @@ export default function AdAuditor() {
                     <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Client benchmarks (optional)</div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                       {[
-                        { key: 'breakevenCpa' as const, label: 'Breakeven CPA', prefix: '$' },
-                        { key: 'accountCpa' as const, label: 'Account CPA', prefix: '$' },
-                        { key: 'aov' as const, label: 'AOV', prefix: '$' },
-                        { key: 'ltv' as const, label: 'LTV', prefix: '$' },
+                        { key: 'breakevenCpa' as const, label: 'Breakeven CPA', prefix: currency },
+                        { key: 'accountCpa' as const, label: 'Account CPA', prefix: currency },
+                        { key: 'aov' as const, label: 'AOV', prefix: currency },
+                        { key: 'ltv' as const, label: 'LTV', prefix: currency },
                         { key: 'subscriberRate' as const, label: 'Subscriber Rate', suffix: '%' },
                       ].map(({ key, label, prefix, suffix }) => (
                         <div key={key}>
@@ -1259,32 +1308,33 @@ export default function AdAuditor() {
 
                   {/* Strategist notes */}
                   <div>
-                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Strategist notes</div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Strategist notes</div>
+                      <button
+                        onClick={toggleRecording}
+                        title={isRecording ? 'Stop recording' : 'Record a voice note'}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${isRecording ? 'animate-pulse' : ''}`}
+                        style={{
+                          backgroundColor: isRecording ? '#FEE2E2' : '#F0F5F0',
+                          color: isRecording ? '#DC2626' : '#5A8E5A',
+                          border: `1px solid ${isRecording ? '#FECACA' : '#C0D4C0'}`,
+                        }}
+                      >
+                        {isRecording ? (
+                          <><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: '#DC2626' }} />Recording…</>
+                        ) : (
+                          <><svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" /></svg>Voice note</>
+                        )}
+                      </button>
+                    </div>
                     <textarea
                       placeholder="Add any context about this ad — what you were testing, who the audience is, how it fits the funnel, anything relevant…"
                       value={chatContext}
                       onChange={(e) => setChatContext(e.target.value)}
                       rows={3}
                       className="w-full text-sm px-3 py-2.5 rounded-lg border focus:outline-none resize-none"
-                      style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA', color: '#374151' }}
+                      style={{ borderColor: isRecording ? '#FCA5A5' : '#E8DCC4', backgroundColor: '#FAFAFA', color: '#374151' }}
                     />
-                  </div>
-
-                  {/* Voice note */}
-                  <div>
-                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Voice note (URL → transcribe to notes)</div>
-                    <div className="flex gap-2">
-                      <input
-                        type="url" placeholder="Paste video/audio URL…"
-                        value={voiceNoteUrl} onChange={(e) => setVoiceNoteUrl(e.target.value)}
-                        className="flex-1 text-sm px-3 py-2 rounded-lg border focus:outline-none"
-                        style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
-                      />
-                      <button onClick={handleVoiceNoteTranscribe} disabled={!voiceNoteUrl.trim() || voiceNoteTranscribing} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-40 flex items-center gap-1.5" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
-                        {voiceNoteTranscribing ? <><Spinner /><span>…</span></> : 'Transcribe'}
-                      </button>
-                    </div>
-                    {voiceNoteError && <p className="text-xs text-red-500 mt-1">{voiceNoteError}</p>}
                   </div>
                 </div>
               )}
@@ -1333,7 +1383,7 @@ export default function AdAuditor() {
                       <div key={config.id} className="rounded-xl bg-white p-3" style={{ border: '1px solid #F3F4F6' }}>
                         <div className="text-xs font-semibold mb-2" style={{ color: '#374151' }}>{config.label}</div>
                         <div className="relative">
-                          {config.unit === '$' && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#9CA3AF' }}>$</span>}
+                          {config.unit === '$' && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#9CA3AF' }}>{currency}</span>}
                           <input
                             type="number" step="any" placeholder={config.unit === '#' ? '0' : config.unit === 'x' ? '3.5' : config.unit === '$' ? '0.00' : '0'}
                             value={manualInputs[config.id] ?? ''}
@@ -1348,7 +1398,7 @@ export default function AdAuditor() {
                         {config.perClient && (
                           <div className="mt-2">
                             <div className="relative">
-                              {config.unit === '$' && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#9CA3AF' }}>$</span>}
+                              {config.unit === '$' && <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs" style={{ color: '#9CA3AF' }}>{currency}</span>}
                               <input
                                 type="number" step="any" placeholder="Target"
                                 value={targets[config.id as 'roas' | 'cpa']}
@@ -1433,10 +1483,10 @@ export default function AdAuditor() {
                     <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Client benchmarks</div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                       {[
-                        { key: 'breakevenCpa' as const, label: 'Breakeven CPA', prefix: '$' },
-                        { key: 'accountCpa' as const, label: 'Account CPA', prefix: '$' },
-                        { key: 'aov' as const, label: 'AOV', prefix: '$' },
-                        { key: 'ltv' as const, label: 'LTV', prefix: '$' },
+                        { key: 'breakevenCpa' as const, label: 'Breakeven CPA', prefix: currency },
+                        { key: 'accountCpa' as const, label: 'Account CPA', prefix: currency },
+                        { key: 'aov' as const, label: 'AOV', prefix: currency },
+                        { key: 'ltv' as const, label: 'LTV', prefix: currency },
                         { key: 'subscriberRate' as const, label: 'Subscriber Rate', suffix: '%' },
                       ].map(({ key, label, prefix, suffix }) => (
                         <div key={key}>
@@ -1459,32 +1509,33 @@ export default function AdAuditor() {
 
                   {/* Strategist notes */}
                   <div>
-                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Strategist notes</div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Strategist notes</div>
+                      <button
+                        onClick={toggleRecording}
+                        title={isRecording ? 'Stop recording' : 'Record a voice note'}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${isRecording ? 'animate-pulse' : ''}`}
+                        style={{
+                          backgroundColor: isRecording ? '#FEE2E2' : '#F0F5F0',
+                          color: isRecording ? '#DC2626' : '#5A8E5A',
+                          border: `1px solid ${isRecording ? '#FECACA' : '#C0D4C0'}`,
+                        }}
+                      >
+                        {isRecording ? (
+                          <><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: '#DC2626' }} />Recording…</>
+                        ) : (
+                          <><svg viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" /></svg>Voice note</>
+                        )}
+                      </button>
+                    </div>
                     <textarea
                       placeholder="Any context about this ad — what you were testing, audience, funnel stage, creative hypothesis…"
                       value={chatContext}
                       onChange={(e) => setChatContext(e.target.value)}
                       rows={3}
                       className="w-full text-sm px-3 py-2.5 rounded-lg border focus:outline-none resize-none"
-                      style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA', color: '#374151' }}
+                      style={{ borderColor: isRecording ? '#FCA5A5' : '#E8DCC4', backgroundColor: '#FAFAFA', color: '#374151' }}
                     />
-                  </div>
-
-                  {/* Voice note */}
-                  <div>
-                    <div className="text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#9CA3AF' }}>Voice note → transcribe to notes</div>
-                    <div className="flex gap-2">
-                      <input
-                        type="url" placeholder="Paste video or audio URL…"
-                        value={voiceNoteUrl} onChange={(e) => setVoiceNoteUrl(e.target.value)}
-                        className="flex-1 text-sm px-3 py-2 rounded-lg border focus:outline-none"
-                        style={{ borderColor: '#E8DCC4', backgroundColor: '#FAFAFA' }}
-                      />
-                      <button onClick={handleVoiceNoteTranscribe} disabled={!voiceNoteUrl.trim() || voiceNoteTranscribing} className="px-4 py-2 rounded-lg border text-sm font-medium disabled:opacity-40 flex items-center gap-1.5" style={{ borderColor: '#C0D4C0', color: '#5A8E5A' }}>
-                        {voiceNoteTranscribing ? <><Spinner /><span>…</span></> : 'Transcribe'}
-                      </button>
-                    </div>
-                    {voiceNoteError && <p className="text-xs text-red-500 mt-1">{voiceNoteError}</p>}
                   </div>
                 </div>
               )}
@@ -1492,22 +1543,22 @@ export default function AdAuditor() {
 
             <div className="space-y-6">
               {/* KEY */}
-              <CategoryPill category="key" metrics={KEY_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+              <CategoryPill category="key" metrics={KEY_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} currency={currency}
                 editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'key' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* SOFT */}
-              <CategoryPill category="soft" metrics={SOFT_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+              <CategoryPill category="soft" metrics={SOFT_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} currency={currency}
                 editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'soft' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* HARD */}
-              <CategoryPill category="hard" metrics={HARD_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+              <CategoryPill category="hard" metrics={HARD_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} currency={currency}
                 editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'hard' && detailProps && <MetricDetail {...detailProps} />}
 
               {/* FUNNEL RATES */}
-              <CategoryPill category="funnel" metrics={FUNNEL_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores}
+              <CategoryPill category="funnel" metrics={FUNNEL_METRICS} selected={selectedMetric} onSelect={setSelectedMetric} scores={scores} currency={currency}
                 editingTile={editingTile} editingValue={editingValue} onStartEdit={startTileEdit} onEditValueChange={setEditingValue} onCommitEdit={commitTileEdit} onCancelEdit={cancelTileEdit} />
               {selectedMetric && selectedCategory === 'funnel' && detailProps && <MetricDetail {...detailProps} />}
             </div>
