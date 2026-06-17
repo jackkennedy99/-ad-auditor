@@ -1204,14 +1204,14 @@ export default function AdAuditor() {
                   <p className="text-xs" style={{ color: '#9DAF9D' }}>Try a clearer crop, or enter manually below.</p>
                 </div>
               ) : auditReady ? (
-                <div className="flex items-center gap-4 px-5 py-4 w-full">
-                  {screenshotPreview && <img src={screenshotPreview} alt="" className="h-14 rounded-lg object-contain shrink-0" style={{ border: '1px solid #C0D4C0' }} />}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-0.5">
+                <div className="flex items-center gap-3 px-4 py-4 w-full">
+                  {screenshotPreview && <img src={screenshotPreview} alt="" className="rounded-lg object-cover shrink-0" style={{ border: '1px solid #C0D4C0', width: 64, height: 48 }} />}
+                  <div className="flex-1 overflow-hidden">
+                    <div className="flex items-center gap-1.5">
                       <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0" style={{ color: '#5A8E5A' }}><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" /></svg>
-                      <span className="text-sm font-semibold" style={{ color: '#2D3428' }}>{extractedCount} metrics read from screenshot</span>
+                      <span className="text-sm font-semibold" style={{ color: '#2D3428' }}>{extractedCount} metrics read</span>
                     </div>
-                    <p className="text-xs" style={{ color: '#7A8870' }}>Add context below, then hit Run Audit — or click here to swap screenshot</p>
+                    <p className="text-xs mt-0.5" style={{ color: '#7A8870' }}>Click to swap screenshot</p>
                   </div>
                 </div>
               ) : (
