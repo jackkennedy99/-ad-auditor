@@ -1371,20 +1371,26 @@ export default function AdAuditor() {
             </div>
 
             {/* ── Run Audit CTA ── */}
-            {auditReady && (
-              <div className="mt-6">
-                <button
-                  onClick={() => { setScores(computeScores(values, targets)); setAuditStep('dashboard'); setSelectedMetric(null) }}
-                  className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold text-white transition-all hover:opacity-90 active:scale-[0.99]"
-                  style={{ backgroundColor: '#5A8E5A', boxShadow: '0 4px 20px rgba(90,142,90,0.35)' }}
-                >
-                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-                  </svg>
-                  Run Audit
-                </button>
-              </div>
-            )}
+            <div className="mt-6">
+              <button
+                onClick={() => { if (!auditReady) return; setScores(computeScores(values, targets)); setAuditStep('dashboard'); setSelectedMetric(null) }}
+                disabled={!auditReady}
+                className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold text-white transition-all"
+                style={{
+                  backgroundColor: auditReady ? '#5A8E5A' : '#C8D5C8',
+                  boxShadow: auditReady ? '0 4px 20px rgba(90,142,90,0.35)' : 'none',
+                  cursor: auditReady ? 'pointer' : 'not-allowed',
+                }}
+              >
+                <svg viewBox="0 0 20 20" fill="currentColor" className="w-5 h-5">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+                Run Audit
+              </button>
+              {!auditReady && (
+                <p className="text-center text-xs mt-2" style={{ color: '#9DAF9D' }}>Upload a screenshot first</p>
+              )}
+            </div>
 
             <div className="text-center mt-4">
               <button onClick={() => setManualMode(true)} className="text-sm underline underline-offset-2" style={{ color: '#9DAF9D' }}>
