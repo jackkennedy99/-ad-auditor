@@ -735,6 +735,10 @@ export default function AdAuditor() {
   const [recLoading, setRecLoading] = useState<Partial<Record<MetricId, boolean>>>({})
   const [recErrors, setRecErrors] = useState<Partial<Record<MetricId, string>>>({})
 
+  // ── Hypothesis
+  const [hypothesis, setHypothesis] = useState('')
+  const [hypothesisLoading, setHypothesisLoading] = useState(false)
+
   // ── Tile override (inline edit)
   const [editingTile, setEditingTile] = useState<MetricId | null>(null)
   const [editingValue, setEditingValue] = useState('')
@@ -834,6 +838,33 @@ export default function AdAuditor() {
     reader.readAsDataURL(file)
   }, [targets, computeScores, currency])
 
+  // ── Hypothesis fetch ───────────────────────────────────────────────────────
+
+  const fetchHypothesis = async (scoredMetrics: ScoredMetric[]) => {
+    if (scoredMetrics.length === 0) return
+    setHypothesis('')
+    setHypothesisLoading(true)
+    try {
+      const res = await fetch('/api/hypothesis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          allScores: scoredMetrics,
+          chatContext,
+          adType,
+          currency,
+          clientBenchmarks: benchmarks,
+        }),
+      })
+      const data = await res.json()
+      if (data.hypothesis) setHypothesis(data.hypothesis)
+    } catch {
+      // silently fail — hypothesis is additive, not critical
+    } finally {
+      setHypothesisLoading(false)
+    }
+  }
+
   // ── Manual entry ───────────────────────────────────────────────────────────
 
   const handleManualScore = () => {
@@ -846,10 +877,12 @@ export default function AdAuditor() {
       }
     }
     setValues(vals)
-    setScores(computeScores(vals, targets))
+    const scored = computeScores(vals, targets)
+    setScores(scored)
     setAuditStep('dashboard')
     setSelectedMetric(null)
     setRecs({})
+    fetchHypothesis(scored)
   }
 
   const updateTarget = (key: 'roas' | 'cpa', val: string) => {
@@ -1093,7 +1126,7 @@ export default function AdAuditor() {
                 {auditStep === 'dashboard' && (
                   <>
                     <button
-                      onClick={() => { setScores(computeScores(values, targets)); setRecs({}); setRecErrors({}); setRecLoading({}); setSelectedMetric(null) }}
+                      onClick={() => { const scored = computeScores(values, targets); setScores(scored); setRecs({}); setRecErrors({}); setRecLoading({}); setSelectedMetric(null); fetchHypothesis(scored) }}
                       className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border transition-colors"
                       style={{ borderColor: '#5A8E5A', color: '#5A8E5A', backgroundColor: '#F0F5F0' }}
                     >
@@ -1373,7 +1406,7 @@ export default function AdAuditor() {
             {/* ── Run Audit CTA ── */}
             <div className="mt-6">
               <button
-                onClick={() => { if (!auditReady) return; setScores(computeScores(values, targets)); setAuditStep('dashboard'); setSelectedMetric(null) }}
+                onClick={() => { if (!auditReady) return; const scored = computeScores(values, targets); setScores(scored); setAuditStep('dashboard'); setSelectedMetric(null); fetchHypothesis(scored) }}
                 disabled={!auditReady}
                 className="w-full flex items-center justify-center gap-3 py-4 rounded-2xl text-base font-bold text-white transition-all"
                 style={{
@@ -1592,6 +1625,26 @@ export default function AdAuditor() {
                 </div>
               )}
             </div>
+
+            {/* ── Hypothesis card ── */}
+            {(hypothesis || hypothesisLoading) && (
+              <div className="mb-6 rounded-2xl p-5" style={{ backgroundColor: '#F5F0E8', border: '1px solid #E8DCC4' }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0" style={{ color: '#8B7355' }}>
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: '#8B7355' }}>Audit hypothesis</span>
+                </div>
+                {hypothesisLoading ? (
+                  <div className="flex items-center gap-2">
+                    <Spinner />
+                    <span className="text-sm" style={{ color: '#6B5E4A' }}>Analysing your data…</span>
+                  </div>
+                ) : (
+                  <p className="text-sm leading-relaxed" style={{ color: '#3D2E1A' }}>{hypothesis}</p>
+                )}
+              </div>
+            )}
 
             <div className="space-y-6">
               {/* KEY */}
