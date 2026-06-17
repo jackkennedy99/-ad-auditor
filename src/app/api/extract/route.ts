@@ -26,6 +26,7 @@ SOFT METRICS:
 6. hookRate — HOOK RATE ONLY. This is the percentage of impressions that resulted in at least a 3-second view. Labeled "Hook Rate", "Video Hook Rate", or "3-Second Video Views Rate". It measures whether the opening of the video stopped the scroll. Typical range: 10–40%. DO NOT confuse with Hold Rate.
 7. holdRate — HOLD RATE ONLY. This is how much of the video people watched on average, expressed as a percentage of the video length. Labeled "Hold Rate", "Video Average Play Time %", or "Retention Rate". It measures whether viewers stayed engaged after the hook. Typical range: 15–60%. DO NOT confuse with Hook Rate.
 CRITICAL: hookRate and holdRate are two different metrics. Hook Rate = did they stop scrolling (first 3 seconds). Hold Rate = did they keep watching (average through the video). Read each column header carefully before assigning values.
+ALSO: for hookRate and holdRate, return the EXACT column header text you read each value from, verbatim as it appears in the screenshot, in "hookRateSource" and "holdRateSource". If a value is null, return null for its source too. This is used to double-check the assignment, so copy the header text exactly (e.g. "Hook Rate", "Video Average Play Time", "Hold Rate", "3-Second Video Plays").
 8. ctr — Link Click CTR as a percentage. Must be LINK click CTR specifically. May be labeled "CTR (Link Click-Through Rate)", "Link CTR". Typical range: 0.3–5%.
 9. linkClicks — Raw number of link clicks. Labeled "Link Clicks".
 10. cplc — Cost per link click in dollars. May be labeled "CPC (Cost per Link Click)", "Cost per Link Click", "CPLC".
@@ -52,7 +53,7 @@ Rules:
 - Return ONLY a valid JSON object with no other text, explanation, or markdown
 
 JSON format (no other text):
-{"amountSpent":number|null,"cpm":number|null,"conversionValue":number|null,"roas":number|null,"cpa":number|null,"hookRate":number|null,"holdRate":number|null,"ctr":number|null,"linkClicks":number|null,"cplc":number|null,"lpv":number|null,"cplpv":number|null,"lpQuality":number|null,"atc":number|null,"initiateCheckout":number|null,"purchases":number|null,"atcPurchase":number|null,"detectedCurrency":"$"|"£"|null}`
+{"amountSpent":number|null,"cpm":number|null,"conversionValue":number|null,"roas":number|null,"cpa":number|null,"hookRate":number|null,"holdRate":number|null,"hookRateSource":string|null,"holdRateSource":string|null,"ctr":number|null,"linkClicks":number|null,"cplc":number|null,"lpv":number|null,"cplpv":number|null,"lpQuality":number|null,"atc":number|null,"initiateCheckout":number|null,"purchases":number|null,"atcPurchase":number|null,"detectedCurrency":"$"|"£"|null}`
 
 export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -107,7 +108,32 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const { detectedCurrency, ...values } = parsed
+    // Deterministic hook/hold safeguard: the model still occasionally crosses these
+    // two video metrics. We had it report the exact header it read each value from,
+    // so we can detect a crossed assignment by the label wording and swap in code.
+    const looksLikeHold = (s: string) =>
+      /hold|retention|average\s*play|avg\s*play|watch\s*time|completion|thru-?play/i.test(s)
+    const looksLikeHook = (s: string) =>
+      /hook|3[\s-]*sec(ond)?|3s\b|three[\s-]*second/i.test(s)
+
+    const hookSrc = typeof parsed.hookRateSource === 'string' ? parsed.hookRateSource : ''
+    const holdSrc = typeof parsed.holdRateSource === 'string' ? parsed.holdRateSource : ''
+
+    // The hook field actually came from a hold-type header (and not a hook one), or
+    // the hold field actually came from a hook-type header (and not a hold one).
+    const hookFieldIsHold = looksLikeHold(hookSrc) && !looksLikeHook(hookSrc)
+    const holdFieldIsHook = looksLikeHook(holdSrc) && !looksLikeHold(holdSrc)
+
+    if (hookFieldIsHold || holdFieldIsHook) {
+      const tmp = parsed.hookRate
+      parsed.hookRate = parsed.holdRate
+      parsed.holdRate = tmp
+    }
+
+    // Strip helper-only fields so they don't reach the metric tiles.
+    const { detectedCurrency, hookRateSource, holdRateSource, ...values } = parsed
+    void hookRateSource
+    void holdRateSource
     return NextResponse.json({ values, detectedCurrency: detectedCurrency || null })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
