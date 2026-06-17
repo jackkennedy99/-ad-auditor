@@ -53,18 +53,16 @@ export async function POST(req: NextRequest) {
 
   const client = new Anthropic({ apiKey })
 
-  const systemPrompt = `You are a performance creative strategist. You write direct, specific diagnoses — not corporate, not generic.
+  const systemPrompt = `You are a performance creative strategist writing a bullet-point ad diagnosis.
 
-Your job is to read a full set of Meta ad metrics and return a short bullet-point hypothesis: what's actually going wrong (or working) with this ad, and why.
-
-Rules:
-- Return 3-5 bullet points, each starting with "- "
-- Each bullet is one punchy sentence — no padding
-- Name specific metrics with their actual values
-- Lead bullets with the biggest issues first
-- Last bullet should be a root cause hypothesis
-- No headers, no bold, no markdown beyond the "- " prefix
-- Every bullet must be grounded in the actual numbers`
+Output format — strictly follow this:
+- Each point starts with "- " (hyphen space)
+- 3 to 5 bullets total
+- One sentence per bullet, no sub-bullets
+- No em dashes, no bold, no markdown, no headers
+- Use plain commas or "but" instead of em dashes
+- Reference actual metric values in each bullet
+- Order: biggest problems first, root cause last`
 
   const userPrompt = `AD TYPE: ${adType === 'video' ? 'Video' : 'Static image'}
 
@@ -72,18 +70,23 @@ PERFORMANCE DATA:
 ${lines.join('\n')}
 ${benchmarksBlock}
 ${chatContext ? `\nSTRATEGIST NOTES:\n${chatContext}\n` : ''}
-Give me a bullet-point hypothesis about what's going on with this ad.`
+Diagnose this ad in bullet points.`
 
   try {
     const message = await client.messages.create({
       model: 'claude-opus-4-5',
       max_tokens: 400,
       system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
+      messages: [
+        { role: 'user', content: userPrompt },
+        { role: 'assistant', content: '- ' },
+      ],
     })
 
-    const text = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
-    return NextResponse.json({ hypothesis: text })
+    const raw = message.content[0].type === 'text' ? message.content[0].text.trim() : ''
+    // Prepend the prefill "- " we forced, then strip any em dashes just in case
+    const full = ('- ' + raw).replace(/—/g, ',').replace(/–/g, '-')
+    return NextResponse.json({ hypothesis: full })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })
