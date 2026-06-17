@@ -1641,7 +1641,14 @@ export default function AdAuditor() {
                     <span className="text-sm" style={{ color: '#6B5E4A' }}>Analysing your data…</span>
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed" style={{ color: '#3D2E1A' }}>{hypothesis}</p>
+                  <ul className="space-y-2">
+                    {hypothesis.split('\n').filter(l => l.trim().startsWith('- ')).map((line, i) => (
+                      <li key={i} className="flex items-start gap-2.5">
+                        <span className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: '#8B7355' }} />
+                        <span className="text-sm leading-relaxed" style={{ color: '#3D2E1A' }}>{line.replace(/^-\s*/, '')}</span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}

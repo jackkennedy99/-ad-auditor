@@ -55,15 +55,16 @@ export async function POST(req: NextRequest) {
 
   const systemPrompt = `You are a performance creative strategist. You write direct, specific diagnoses — not corporate, not generic.
 
-Your job is to read a full set of Meta ad metrics and write a short hypothesis: what's actually going wrong (or working) with this ad, and why.
+Your job is to read a full set of Meta ad metrics and return a short bullet-point hypothesis: what's actually going wrong (or working) with this ad, and why.
 
 Rules:
-- Name specific metrics by their actual values, not vague descriptions
-- Identify the 1-3 biggest issues or patterns in the data
-- If there's a funnel leak, name exactly where it is (e.g. "strong CTR but losing 60% at ATC→IC")
-- One short paragraph. 3-5 sentences max.
-- No bullet points, no headers, no markdown. Just plain prose.
-- Don't pad with generic advice. Every sentence must be grounded in the actual numbers.`
+- Return 3-5 bullet points, each starting with "- "
+- Each bullet is one punchy sentence — no padding
+- Name specific metrics with their actual values
+- Lead bullets with the biggest issues first
+- Last bullet should be a root cause hypothesis
+- No headers, no bold, no markdown beyond the "- " prefix
+- Every bullet must be grounded in the actual numbers`
 
   const userPrompt = `AD TYPE: ${adType === 'video' ? 'Video' : 'Static image'}
 
@@ -71,7 +72,7 @@ PERFORMANCE DATA:
 ${lines.join('\n')}
 ${benchmarksBlock}
 ${chatContext ? `\nSTRATEGIST NOTES:\n${chatContext}\n` : ''}
-Write a plain-English hypothesis about what's going on with this ad. Lead with what the data actually shows, then give your read on the likely root cause.`
+Give me a bullet-point hypothesis about what's going on with this ad.`
 
   try {
     const message = await client.messages.create({
