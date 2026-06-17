@@ -840,7 +840,7 @@ export default function AdAuditor() {
 
   // ── Hypothesis fetch ───────────────────────────────────────────────────────
 
-  const fetchHypothesis = async (scoredMetrics: ScoredMetric[]) => {
+  const fetchHypothesis = async (scoredMetrics: ScoredMetric[], brandCtxOverride?: string) => {
     if (scoredMetrics.length === 0) return
     setHypothesis('')
     setHypothesisLoading(true)
@@ -851,6 +851,7 @@ export default function AdAuditor() {
         body: JSON.stringify({
           allScores: scoredMetrics,
           chatContext,
+          brandContext: brandCtxOverride !== undefined ? brandCtxOverride : brandContext,
           adType,
           currency,
           clientBenchmarks: benchmarks,
@@ -960,7 +961,13 @@ export default function AdAuditor() {
         body: JSON.stringify({ url: brandUrl }),
       })
       const data = await res.json()
-      if (!data.error) setBrandContext(data.text)
+      if (!data.error) {
+        setBrandContext(data.text)
+        // Re-run hypothesis with the fresh brand context if already on dashboard
+        if (auditStep === 'dashboard' && scores.length > 0) {
+          fetchHypothesis(scores, data.text)
+        }
+      }
     } finally {
       setUrlLoading(false)
     }

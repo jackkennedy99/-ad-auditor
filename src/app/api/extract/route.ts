@@ -23,8 +23,9 @@ KEY METRICS:
 5. cpa — Cost per purchase/acquisition in dollars. May be labeled "Cost per Purchase", "CPA", "Cost per Result" (purchase campaigns).
 
 SOFT METRICS:
-6. hookRate — Hook Rate as a percentage (0–100 range). May be labeled "Hook Rate", "Video Hook Rate", or calculated as (3-Second Video Views ÷ Impressions) × 100. Typical range: 5–60%. If you see a value like 14.53, return 14.53 — do NOT divide by 10.
-7. holdRate — Hold Rate as a percentage (0–100 range). May be labeled "Hold Rate", average watch time as % of video length. Typical range: 3–20%.
+6. hookRate — HOOK RATE ONLY. This is the percentage of impressions that resulted in at least a 3-second view. Labeled "Hook Rate", "Video Hook Rate", or "3-Second Video Views Rate". It measures whether the opening of the video stopped the scroll. Typical range: 10–40%. DO NOT confuse with Hold Rate.
+7. holdRate — HOLD RATE ONLY. This is how much of the video people watched on average, expressed as a percentage of the video length. Labeled "Hold Rate", "Video Average Play Time %", or "Retention Rate". It measures whether viewers stayed engaged after the hook. Typical range: 15–60%. DO NOT confuse with Hook Rate.
+CRITICAL: hookRate and holdRate are two different metrics. Hook Rate = did they stop scrolling (first 3 seconds). Hold Rate = did they keep watching (average through the video). Read each column header carefully before assigning values.
 8. ctr — Link Click CTR as a percentage. Must be LINK click CTR specifically. May be labeled "CTR (Link Click-Through Rate)", "Link CTR". Typical range: 0.3–5%.
 9. linkClicks — Raw number of link clicks. Labeled "Link Clicks".
 10. cplc — Cost per link click in dollars. May be labeled "CPC (Cost per Link Click)", "Cost per Link Click", "CPLC".

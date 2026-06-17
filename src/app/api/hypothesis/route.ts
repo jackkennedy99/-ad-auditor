@@ -11,12 +11,14 @@ export async function POST(req: NextRequest) {
   const {
     allScores,
     chatContext,
+    brandContext,
     adType,
     currency,
     clientBenchmarks,
   }: {
     allScores: ScoredMetric[]
     chatContext?: string
+    brandContext?: string
     adType: 'video' | 'static'
     currency?: string
     clientBenchmarks?: {
@@ -69,6 +71,7 @@ Output format — strictly follow this:
 PERFORMANCE DATA:
 ${lines.join('\n')}
 ${benchmarksBlock}
+${brandContext ? `\nBRAND / PRODUCT CONTEXT:\n${brandContext.slice(0, 800)}\n` : ''}
 ${chatContext ? `\nSTRATEGIST NOTES:\n${chatContext}\n` : ''}
 Diagnose this ad in bullet points.`
 
