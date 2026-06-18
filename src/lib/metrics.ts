@@ -10,7 +10,7 @@ export type MetricId =
   // Hard
   | 'atc' | 'initiateCheckout' | 'purchases'
   // Funnel rates
-  | 'lpQuality' | 'atcIc' | 'atcPurchase' | 'icPurchase' | 'lpvPurchase'
+  | 'lpQuality' | 'lpvAtc' | 'atcIc' | 'atcPurchase' | 'icPurchase' | 'lpvPurchase'
 
 export interface MetricConfig {
   id: MetricId
@@ -234,6 +234,20 @@ export const METRICS: MetricConfig[] = [
     what: 'Landing Page Views ÷ Link Clicks × 100. What % of clicks actually load the page.',
     why: 'Measures traffic delivery quality. A low % means people clicked but the page bounced before loading — a technical problem, not a creative one.',
     advice: 'Below 70% is almost always mobile page load speed. Run Google PageSpeed on mobile. Check for redirect chains. Test a lighter, faster landing page variant. Ensure destination URL is correct and direct.',
+  },
+  {
+    id: 'lpvAtc',
+    category: 'funnel',
+    label: 'LPV → ATC %',
+    unit: '%',
+    direction: 'higher',
+    thresholds: { ok: 8, good: 12, great: 18 },
+    perClient: false,
+    scoreable: true,
+    calcFrom: { numerator: 'atc', denominator: 'lpv' },
+    what: 'Add to Carts ÷ Landing Page Views × 100. What % of people who loaded the page actually added something to cart.',
+    why: 'The sharpest signal of landing page effectiveness. A high LPV→ATC means the page is convincing — strong product presentation, clear offer, good social proof. A low rate means traffic is landing but leaving unconverted.',
+    advice: 'Low LPV→ATC almost always points to the product page, not the ad. Test stronger hero imagery, a more prominent CTA, clearer pricing, and social proof above the fold. Ensure the landing page matches the exact offer and visual from the ad — any mismatch kills intent.',
   },
   {
     id: 'atcIc',

@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 // Fetch /api/version on the live site and check that `version` matches.
 // Vercel's GitHub webhook is intermittent, so this is the source of truth
 // for "did my push actually go live".
-export const VERSION = 'hookhold-safeguard-2026-06-17'
+const VERSION = 'hookhold-safeguard-2026-06-17'
 
 export const dynamic = 'force-dynamic'
 
